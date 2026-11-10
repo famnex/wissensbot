@@ -157,7 +157,17 @@ export async function createApp({
   });
   app.post('/api/auth/logout', (_req, res) => {
     setSession(res, null, config);
-    res.json({ ok: true });
+    let redirectUrl = config.loginUrl || null;
+    const ssoConfigRaw = getSetting(db, 'sso_config');
+    if (ssoConfigRaw) {
+      try {
+        const sso = JSON.parse(ssoConfigRaw);
+        if (sso.enabled) {
+          redirectUrl = sso.logoutUrl || sso.loginUrl || redirectUrl;
+        }
+      } catch {}
+    }
+    res.json({ ok: true, redirectUrl });
   });
   app.use('/api', authenticate(db, verify, config));
   app.use(

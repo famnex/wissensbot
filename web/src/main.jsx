@@ -93,10 +93,15 @@ function App() {
   }, [user, view]);
   async function logout() {
     try {
-      await api('/auth/logout', { method: 'POST' });
+      const res = await api('/auth/logout', { method: 'POST' });
       try {
         sessionStorage.removeItem(chatKey(user.id));
       } catch {}
+      const target = res?.redirectUrl || bootstrap?.loginUrl;
+      if (target) {
+        window.location.href = target;
+        return;
+      }
       setUser(null);
       setOverview(null);
       setView('chat');

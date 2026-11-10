@@ -259,4 +259,9 @@ test('SSO configuration via Admin UI allows seamless IdP authentication with cus
   assert.ok(dbUser);
   assert.equal(dbUser.name, 'Max Mustermann');
   assert.equal(dbUser.role, 'user');
+
+  // 7. Verify logout returns redirectUrl to SSO provider
+  const logoutRes = await h.csrf(admin.client.post('/api/auth/logout'));
+  assert.equal(logoutRes.status, 200);
+  assert.equal(logoutRes.body.redirectUrl, 'https://cloud.mso-hef.de/novus/api/tiles/sso/');
 });

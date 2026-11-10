@@ -16,6 +16,7 @@ export function adminRoutes(db, config, gemini) {
     let sso = {
       enabled: false,
       loginUrl: 'https://cloud.mso-hef.de/novus/api/tiles/sso/',
+      logoutUrl: '',
       paramName: 'sso_token',
       usernameClaim: 'username',
       nameClaim: 'display_name',
@@ -51,6 +52,7 @@ export function adminRoutes(db, config, gemini) {
       .object({
         enabled: z.boolean(),
         loginUrl: z.string().trim().max(1000).optional().default(''),
+        logoutUrl: z.string().trim().max(1000).optional().default(''),
         secret: z.string().trim().max(1000).optional(),
         paramName: z.string().trim().max(100).optional().default('sso_token'),
         usernameClaim: z.string().trim().max(100).optional().default('username'),
@@ -67,6 +69,7 @@ export function adminRoutes(db, config, gemini) {
       const configToStore = {
         enabled: value.enabled,
         loginUrl: value.loginUrl,
+        logoutUrl: value.logoutUrl,
         paramName: value.paramName || 'sso_token',
         usernameClaim: value.usernameClaim || 'username',
         nameClaim: value.nameClaim || 'display_name',

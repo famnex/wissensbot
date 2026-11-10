@@ -89,6 +89,7 @@ function Models({ settings, reload, notify }) {
   const [ssoLoginUrl, setSsoLoginUrl] = useState(
     settings.sso?.loginUrl || 'https://cloud.mso-hef.de/novus/api/tiles/sso/',
   );
+  const [ssoLogoutUrl, setSsoLogoutUrl] = useState(settings.sso?.logoutUrl || '');
   const [ssoSecret, setSsoSecret] = useState('');
   const [ssoParamName, setSsoParamName] = useState(settings.sso?.paramName || 'sso_token');
   const [ssoUsernameClaim, setSsoUsernameClaim] = useState(
@@ -119,6 +120,7 @@ function Models({ settings, reload, notify }) {
         body: {
           enabled: ssoEnabled,
           loginUrl: ssoLoginUrl.trim(),
+          logoutUrl: ssoLogoutUrl.trim(),
           secret: ssoSecret.trim() || undefined,
           paramName: ssoParamName.trim(),
           usernameClaim: ssoUsernameClaim.trim(),
@@ -375,6 +377,18 @@ function Models({ settings, reload, notify }) {
           />
           <p className="field-help">
             Auf diese URL verlinkt der Button <em>„Zum Organisationslogin“</em> im Anmeldefenster.
+          </p>
+
+          <label htmlFor="sso-logout-url">SSO Abmelde-Weiterleitung (optional)</label>
+          <input
+            id="sso-logout-url"
+            type="url"
+            value={ssoLogoutUrl}
+            onChange={(e) => setSsoLogoutUrl(e.target.value)}
+            placeholder="Leer lassen, um Login-URL zu nutzen (z. B. https://cloud.mso-hef.de/)"
+          />
+          <p className="field-help">
+            Wohin der Benutzer nach dem Abmelden weitergeleitet wird. Bleibt dieses Feld leer, wird automatisch die obige Login-URL verwendet.
           </p>
 
           <label htmlFor="sso-secret">
