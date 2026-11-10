@@ -1,0 +1,66 @@
+{
+  "name": "wissensraum",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0 <25"
+  },
+  "scripts": {
+    "start": "node server/index.mjs",
+    "worker": "node server/workers/indexer.mjs",
+    "updater": "node ops/update-daemon.mjs",
+    "serve": "node scripts/dev-runner.mjs",
+    "token": "node scripts/create-test-token.mjs",
+    "dev": "node --watch server/index.mjs",
+    "dev:web": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:backup": "node scripts/backup.mjs",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "test:smoke": "node scripts/smoke.mjs",
+    "test:pm2": "node scripts/smoke.mjs --pm2",
+    "check": "node scripts/check.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "12.11.1",
+    "cheerio": "1.2.0",
+    "csv-parse": "7.0.2",
+    "dompurify": "3.4.15",
+    "dotenv": "17.4.2",
+    "exceljs": "4.4.0",
+    "express": "5.2.1",
+    "express-rate-limit": "8.7.0",
+    "helmet": "8.3.0",
+    "ipaddr.js": "2.5.0",
+    "jose": "6.2.12",
+    "lucide-react": "0.577.0",
+    "mammoth": "1.12.2",
+    "marked": "17.0.6",
+    "multer": "2.3.0",
+    "pdfjs-dist": "6.3.289",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "robots-parser": "3.0.1",
+    "undici": "7.29.1",
+    "yauzl": "3.4.0",
+    "zod": "4.6.1"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "11.1.1"
+    },
+    "pm2": {
+      "js-yaml": "4.3.2"
+    }
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "5.2.0",
+    "jszip": "3.10.2",
+    "pm2": "7.0.4",
+    "prettier": "3.9.6",
+    "supertest": "7.2.2",
+    "vite": "7.3.6"
+  }
+}

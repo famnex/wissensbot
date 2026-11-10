@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+var/
+coverage/
+*.log
+*.sqlite*
+*.db*
+.DS_Store
+.sites-runtime/
+.github/
