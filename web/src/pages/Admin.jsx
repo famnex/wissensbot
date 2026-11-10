@@ -733,6 +733,10 @@ function Updates({ settings, overview }) {
           </div>
         </div>
         <dl className="update-details">
+          <dt>Installierte Version</dt>
+          <dd>
+            <code>v1.0.1</code>
+          </dd>
           <dt>Repository</dt>
           <dd>
             {settings.updateRepository ? (

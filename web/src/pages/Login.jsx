@@ -44,7 +44,7 @@ export function Login({ bootstrap, onLogin }) {
             <span>Persönlicher Zugang. Klare Rollen.</span>
           </div>
         </div>
-        <small>Wissensraum · 1.0</small>
+        <small>Wissensraum · 1.0.1</small>
       </aside>
       <main className="login-main">
         <div className="login-card">
