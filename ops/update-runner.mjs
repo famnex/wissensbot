@@ -389,17 +389,26 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const lock = path.join(config.updateDir, 'runner.lock');
   try {
     const old = JSON.parse(await fs.readFile(lock, 'utf8'));
-    try {
-      process.kill(old.pid, 0);
-      throw new Error('Ein Update-Runner läuft bereits.');
-    } catch (error) {
-      if (error.code !== 'ESRCH') throw error;
+    let isAlive = false;
+    if (old?.pid && old.pid !== process.pid) {
+      try {
+        process.kill(old.pid, 0);
+        isAlive = true;
+      } catch (error) {
+        if (error.code !== 'ESRCH') isAlive = true;
+      }
     }
-    await fs.rm(lock);
+    if (isAlive) {
+      throw new Error('Ein Update-Runner läuft bereits.');
+    }
+    await fs.rm(lock, { force: true });
   } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
+    if (error.message === 'Ein Update-Runner läuft bereits.') throw error;
+    if (error.code !== 'ENOENT') {
+      await fs.rm(lock, { force: true }).catch(() => {});
+    }
   }
-  await fs.writeFile(lock, JSON.stringify({ pid: process.pid }), { flag: 'wx', mode: 0o600 });
+  await fs.writeFile(lock, JSON.stringify({ pid: process.pid }), { mode: 0o600 });
   try {
     await runUpdate(config, { forceRecovery: process.argv.includes('--recover') });
   } finally {

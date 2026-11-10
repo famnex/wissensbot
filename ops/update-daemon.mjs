@@ -13,21 +13,44 @@ async function atomic(file, value) {
 }
 try {
   const old = JSON.parse(await fs.readFile(lock, 'utf8'));
-  try {
-    process.kill(old.pid, 0);
-    throw new Error('Ein Update-Daemon läuft bereits.');
-  } catch (error) {
-    if (error.code !== 'ESRCH') throw error;
+  let isAlive = false;
+  if (old?.pid && old.pid !== process.pid) {
+    try {
+      process.kill(old.pid, 0);
+      isAlive = true;
+    } catch (error) {
+      if (error.code !== 'ESRCH') isAlive = true;
+    }
   }
-  await fs.rm(lock);
+  let heartbeatFresh = false;
+  try {
+    const beatData = JSON.parse(
+      await fs.readFile(path.join(config.updateDir, 'daemon.json'), 'utf8'),
+    );
+    if (Date.now() - (beatData.at || 0) < 15000) {
+      heartbeatFresh = true;
+    }
+  } catch {}
+
+  if (isAlive && heartbeatFresh) {
+    throw new Error('Ein Update-Daemon läuft bereits.');
+  }
+  await fs.rm(lock, { force: true });
 } catch (error) {
-  if (error.code !== 'ENOENT') throw error;
+  if (error.message === 'Ein Update-Daemon läuft bereits.') throw error;
+  if (error.code !== 'ENOENT') {
+    await fs.rm(lock, { force: true }).catch(() => {});
+  }
 }
-await fs.writeFile(lock, JSON.stringify({ pid: process.pid }), { flag: 'wx', mode: 0o600 });
+await fs.writeFile(lock, JSON.stringify({ pid: process.pid }), { mode: 0o600 });
 let stopping = false;
 for (const sig of ['SIGINT', 'SIGTERM'])
-  process.on(sig, () => {
+  process.on(sig, async () => {
     stopping = true;
+    try {
+      await fs.rm(lock, { force: true });
+    } catch {}
+    process.exit(0);
   });
 const beat = () =>
   atomic(path.join(config.updateDir, 'daemon.json'), { at: Date.now() }).catch(() => {});
