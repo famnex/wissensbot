@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { connect } from '../server/db/index.mjs';
-import { runUpdate } from '../ops/update-runner.mjs';
+import { runUpdate, parsePm2ProcessList } from '../ops/update-runner.mjs';
 const exec = promisify(execFile);
 
 async function fixture(t, failure) {
@@ -63,12 +63,12 @@ async function fixture(t, failure) {
     }
     if (program === 'pm2') {
       if (args[0] === 'jlist')
-        return JSON.stringify(
+        return `\x1b[31m\x1b[1m> [PM2] Info\x1b[0m\n${JSON.stringify(
           ['web', 'worker'].map((s) => ({
             name: `test-${s}`,
             pm2_env: { exec_mode: 'fork_mode' },
           })),
-        );
+        )}`;
       if (args[0] === 'restart' && failure === 'restart' && !failureThrown) {
         failureThrown = true;
         throw new Error('Injected restart failure');
@@ -192,4 +192,20 @@ test('A crashed update resumes by rolling back from the original journal and bac
   const db = connect(f.dbPath);
   assert.equal(db.prepare('SELECT text FROM knowledge').get().text, 'original knowledge');
   db.close();
+});
+test('parsePm2ProcessList safely handles ANSI colored banners and daemon log prefixes', () => {
+  const sampleWithAnsi = '\x1b[31m\x1b[1m> [PM2] Alert\x1b[0m\n[{"name":"wissensraum-web","pm2_env":{"exec_mode":"fork_mode"}}]';
+  const parsed = parsePm2ProcessList(sampleWithAnsi);
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].name, 'wissensraum-web');
+
+  const sampleWithLog = '[PM2] Spawning daemon with pm2_home=/home/user/.pm2 [123]\n[{"name":"wissensraum-worker","pm2_env":{"exec_mode":"fork_mode"}}]';
+  const parsedLog = parsePm2ProcessList(sampleWithLog);
+  assert.equal(parsedLog.length, 1);
+  assert.equal(parsedLog[0].name, 'wissensraum-worker');
+
+  const emptyList = '[PM2] Notice\n[]\n';
+  assert.equal(parsePm2ProcessList(emptyList).length, 0);
+
+  assert.throws(() => parsePm2ProcessList('invalid text without json'), /PM2 lieferte keine/);
 });

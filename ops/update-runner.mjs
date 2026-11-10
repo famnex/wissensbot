@@ -66,6 +66,30 @@ export function command(
     );
   });
 }
+export function parsePm2ProcessList(rawPm2) {
+  if (typeof rawPm2 !== 'string') {
+    throw new Error('PM2 lieferte keine Textausgabe.');
+  }
+  const clean = rawPm2
+    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+    .replace(
+      /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g,
+      '',
+    )
+    .trim();
+
+  const match = clean.match(/\[\s*(?:\{|\])/);
+  if (!match) {
+    throw new Error(`PM2 lieferte keine gültige Prozessliste. Ausgabe: ${clean.slice(0, 200)}`);
+  }
+  const startIdx = match.index;
+  const endIdx = clean.lastIndexOf(']');
+  if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
+    throw new Error(`PM2 lieferte keine gültige Prozessliste. Ausgabe: ${clean.slice(0, 200)}`);
+  }
+  return JSON.parse(clean.slice(startIdx, endIdx + 1));
+}
+
 export async function runUpdate(
   config,
   { execute = command, healthFetch = fetch, forceRecovery = false, pause = delay } = {},
@@ -277,14 +301,7 @@ export async function runUpdate(
     if (free.bavail * free.bsize < 512 * 1024 * 1024)
       throw new Error('Für das Update-Backup ist nicht genügend freier Speicher vorhanden.');
     const rawPm2 = await run('pm2', ['jlist'], 30000);
-    const startIdx = rawPm2.indexOf('[');
-    const endIdx = rawPm2.lastIndexOf(']');
-    if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
-      throw new Error(
-        `PM2 lieferte keine gültige Prozessliste. Ausgabe: ${rawPm2.slice(0, 200)}`,
-      );
-    }
-    const processes = JSON.parse(rawPm2.slice(startIdx, endIdx + 1));
+    const processes = parsePm2ProcessList(rawPm2);
     for (const name of names) {
       const matching = processes.filter((p) => p.name === name);
       if (matching.length !== 1 || matching[0].pm2_env?.exec_mode !== 'fork_mode')
