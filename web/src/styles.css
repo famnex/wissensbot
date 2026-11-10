@@ -961,7 +961,9 @@ progress::-moz-progress-bar {
   margin-top: 13px;
 }
 .page-wrap {
-  max-width: 1290px;
+  max-width: 1380px;
+  width: 100%;
+  box-sizing: border-box;
   margin: 0 auto;
   padding: 38px 40px 42px;
 }
@@ -971,6 +973,7 @@ progress::-moz-progress-bar {
   justify-content: space-between;
   gap: 24px;
   margin-bottom: 27px;
+  flex-wrap: wrap;
 }
 .page-heading h1 {
   margin: 7px 0 8px;
@@ -1056,12 +1059,16 @@ progress::-moz-progress-bar {
   font-size: 0.875rem;
   min-height: 38px;
 }
+.source-list {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
 .source-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) 140px 94px 118px;
-  gap: 12px;
+  grid-template-columns: minmax(220px, 1fr) 130px 94px auto;
+  gap: 16px;
   align-items: center;
-  padding: 20px 23px;
+  padding: 18px 24px;
 }
 .source-labels {
   padding-top: 11px;
@@ -1070,6 +1077,10 @@ progress::-moz-progress-bar {
   font-size: 0.75rem;
   letter-spacing: 0.08em;
   color: #8c99ac;
+}
+.source-labels > span:last-child {
+  text-align: right;
+  padding-right: 6px;
 }
 .source-item {
   border-top: 1px solid #eef1f6;
@@ -1226,7 +1237,10 @@ progress::-moz-progress-bar {
 .row-actions {
   display: flex;
   align-items: center;
-  gap: 2px;
+  justify-content: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .chunk-count {
   color: #7c8a9e;
@@ -1301,6 +1315,7 @@ progress::-moz-progress-bar {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
 }
 .button.small {
   min-height: 32px;
@@ -2053,7 +2068,7 @@ progress::-moz-progress-bar {
     padding: 28px 25px;
   }
   .source-row {
-    grid-template-columns: minmax(170px, 1fr) 122px 50px 113px;
+    grid-template-columns: minmax(170px, 1fr) 122px 80px auto;
     gap: 8px;
     padding: 18px 17px;
   }
@@ -2143,7 +2158,7 @@ progress::-moz-progress-bar {
     font-size: 0.875rem;
   }
   .source-row {
-    grid-template-columns: minmax(160px, 1fr) 110px 113px;
+    grid-template-columns: minmax(160px, 1fr) 110px auto;
   }
   .chunk-count,
   .source-labels > span:nth-child(3) {
