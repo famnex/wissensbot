@@ -62,6 +62,7 @@ export async function harness(t, { uploadMaxBytes = 1024 * 1024 } = {}) {
     dataDir: dir,
     dbPath: path.join(dir, 'knowledge.sqlite'),
     uploadDir: path.join(dir, 'uploads'),
+    attachmentsDir: path.join(dir, 'attachments'),
     updateDir: path.join(dir, 'updates'),
     production: false,
     origin: 'http://localhost:3000',
@@ -87,6 +88,7 @@ export async function harness(t, { uploadMaxBytes = 1024 * 1024 } = {}) {
     updateRepository: '',
   };
   await fs.mkdir(config.uploadDir);
+  await fs.mkdir(config.attachmentsDir);
   await fs.mkdir(config.updateDir);
   const db = connect(config.dbPath);
   migrate(db);

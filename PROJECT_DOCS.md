@@ -38,14 +38,15 @@ Wissensraum ist eine selbst gehostete Wissens- und Chat-Anwendung mit Retrieval-
 ## 3. Datenfluss & Arbeitsweise
 
 ### A. Anmeldung & Sitzungen
-1. Der Benutzer meldet sich per Single Sign-On (z. B. via **cloud.mso-hef.de** über den Button *„Zum Organisationslogin“* oder per SSO-Redirect mit `?sso_token=...`), per manueller Tokeneingabe oder via Fragment (`#access_token=...`) an.
-2. `POST /api/auth/exchange` validiert das Token:
+1. Der Benutzer meldet sich per Single Sign-On (z. B. via **cloud.mso-hef.de** über den Button *„Zum Organisationslogin“* oder per SSO-Redirect mit `?sso_token=...`) an. Wenn ein SSO-Dienst konfiguriert ist, wird das Tokenfeld auf dem Login-Bildschirm vollständig ausgeblendet.
+2. `POST /api/auth/exchange` validiert das externe Token:
    - Zuerst gegen die im **Adminbereich** konfigurierte SSO-Integration (verschlüsselter Shared Secret, flexible Claim-Zuordnung für `username`, `display_name`, `email`).
    - Alternativ gegen die Server-Konfiguration (`.env`: `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_SECRET` oder JWKS).
 3. Der erste jemals validierte Benutzer wird automatisch und atomar zum **Admin**.
-4. Ein AES-256-GCM verschlüsseltes HttpOnly-Session-Cookie (`__Host-` in Produktion) wird für den Browser gesetzt. Es gibt keine serverseitige Sitzungstabelle.
+4. **Dauerhafte Anmeldung (Persistent Session):** Nach erfolgreicher Validierung erzeugt der Server ein versiegeltes Sitzungstoken mit 1 Jahr Gültigkeit (`maxAge: 365 Tage`). Bei Folgeanfragen prüft der Server direkt den aktiven Status des Benutzers in SQLite (`enabled = 1`), ohne dass kurze IdP-Token-Ablaufzeiten den Benutzer vorzeitig abmelden. Deaktivierungen im Adminbereich greifen dennoch sofort.
+5. Ein AES-256-GCM verschlüsseltes HttpOnly-Session-Cookie (`__Host-` in Produktion) wird für den Browser gesetzt. Es gibt keine serverseitige Sitzungstabelle.
 
-### B. Wissensverarbeitung (Ingestion Pipeline)
+### B. Wissensverarbeitung & Dateianhänge (Ingestion Pipeline)
 1. **Quelle anlegen:** Ein Editor oder Admin lädt eine Datei hoch, gibt eine URL oder Freitext ein (`POST /api/sources/*`).
 2. **Job einreihen:** Ein Datensatz wird in `sources` mit Status `queued` angelegt; zeitgleich wird ein Job in `jobs` erzeugt.
 3. **Worker übernimmt:** Der `indexer.mjs`-Prozess holt den Job per atomarem Leasing (`claimJob`), aktualisiert die Fortschrittsanzeige (`jobs.stage`, `jobs.progress`) und führt die Extraktion aus:
@@ -56,14 +57,23 @@ Wissensraum ist eine selbst gehostete Wissens- und Chat-Anwendung mit Retrieval-
    - URLs über den gesicherten Crawler mit robots.txt-Parsing.
 4. **Chunking, Titel & Embeddings:** Der extrahierte Text wird in Blöcke von ~1.800 Zeichen mit 220 Zeichen Überlappung zerlegt. Jeder Chunk erhält automatisch einen abgeleiteten Titel (`deriveChunkTitle`). Gemini erzeugt die Embeddings (Batch-Größe 24), welche normalisiert als 768-Dim Float32 BLOBs in der Tabelle `chunks` gespeichert werden.
 5. **Abschluss & Feingranulare Bearbeitung:** Die Quelle wird auf `ready` gesetzt. Die erzeugten Wissensabschnitte können in der UI aufgeklappt, im Detail eingesehen, angepasst, gelöscht oder manuell ergänzt werden.
+6. **Dateianhänge & Bilder an Wissensartikeln:**
+   - Direkt im Editor eines Wissensartikels (`EditChunkModal`) können Bilder (Screenshots, Diagramme, Schemata) sowie Dokumente (PDFs, Handbücher) hochgeladen werden (`POST /api/chunks/:chunkId/attachments`).
+   - Ein Klick auf *„In Text einfügen“* bettet das Bild oder den Download-Link direkt in den Markdown-Text des Artikels ein.
+   - Beim Löschen eines Artikels oder einer Quelle werden alle physischen Dateien im Verzeichnis `var/attachments/` sauber bereinigt.
 
-### C. Chat & Beantwortung
+### C. Chat, Bildanzeige & Beantwortung
 1. Der Benutzer sendet eine Nachricht im Chat (`POST /api/chat`).
 2. Die Benutzerfrage wird vektorisiert.
 3. Der `Retriever` ermittelt per Kosinus-Distanz im Worker-Thread die relevantesten Chunks (Score >= `RAG_MIN_SCORE`).
-4. Kontext & Quellenauszüge werden in den Gemini-Prompt eingebunden.
-5. Die Antwort wird via Server-Sent Events (SSE) an das Frontend gestreamt (`delta`, `sources`, `done`).
-6. Der Gesprächsverlauf bleibt lokal im Client (`sessionStorage`) und wird bei jeder Anfrage mitgeführt (keine serverseitige Speicherung von Chat-Nachrichten).
+4. **Anhänge im RAG-Kontext:** Alle an den gefundenen Chunks hinterlegten Bilder und Dateien werden ausgelesen und an Gemini übergeben.
+5. **Bot-Instruktionen:** Gemini wird angewiesen, passende Bilder direkt per Markdown (`![Name](URL)`) einzubetten und Dokumente als Download-Links anzubieten.
+6. **Frontend-Rendering:**
+   - Markdown rendert Bilder sicher mit Sanitizing (`loading="lazy"`, responsive Bildskalierung).
+   - Unter der Bot-Antwort rendert Wissensraum interaktive Medien- und Download-Karten (`.attachment-card`) inklusive Dateigröße, Vorschaubild und 1-Klick-Download.
+   - In den Quellennachweisen (`ARTIKEL & QUELLEN`) werden beigefügte Dateien als Pill-Badges angezeigt.
+7. Die Antwort wird via Server-Sent Events (SSE) an das Frontend gestreamt (`delta`, `sources`, `done`).
+8. Der Gesprächsverlauf bleibt lokal im Client (`sessionStorage`) und wird bei jeder Anfrage mitgeführt (keine serverseitige Speicherung von Chat-Nachrichten).
 
 ---
 

@@ -12,9 +12,20 @@ import {
   ExternalLink,
   Globe,
   Inbox,
+  Paperclip,
+  File,
+  Image,
+  Download,
 } from 'lucide-react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+
+export function formatBytes(bytes) {
+  if (!bytes || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
 export function Spinner() {
   return <LoaderCircle className="spin" size={18} aria-label="Wird geladen" />;
 }
@@ -68,7 +79,30 @@ export function Brand() {
 }
 
 export function Markdown({ text }) {
-  const html = DOMPurify.sanitize(marked.parse(text, { breaks: true, gfm: true }), {
+  const isWissenPath =
+    typeof window !== 'undefined' && window.location.pathname.startsWith('/wissen');
+
+  DOMPurify.removeHook('afterSanitizeAttributes');
+  DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+    if (node.tagName === 'A') {
+      node.setAttribute('target', '_blank');
+      node.setAttribute('rel', 'noopener noreferrer');
+      const href = node.getAttribute('href');
+      if (href && href.startsWith('/api/') && isWissenPath) {
+        node.setAttribute('href', `/wissen${href}`);
+      }
+    }
+    if (node.tagName === 'IMG') {
+      node.setAttribute('loading', 'lazy');
+      node.classList.add('markdown-img');
+      const src = node.getAttribute('src');
+      if (src && src.startsWith('/api/') && isWissenPath) {
+        node.setAttribute('src', `/wissen${src}`);
+      }
+    }
+  });
+
+  const html = DOMPurify.sanitize(marked.parse(text || '', { breaks: true, gfm: true }), {
     ALLOWED_TAGS: [
       'p',
       'br',
@@ -94,8 +128,10 @@ export function Markdown({ text }) {
       'th',
       'td',
       'span',
+      'img',
     ],
-    FORBID_TAGS: ['img', 'svg', 'style', 'form', 'input', 'iframe', 'video', 'audio'],
+    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'target', 'rel', 'class', 'loading'],
+    FORBID_TAGS: ['svg', 'style', 'form', 'input', 'iframe', 'video', 'audio'],
     FORBID_ATTR: ['style', 'id', 'name'],
   });
   return <div className="markdown" dangerouslySetInnerHTML={{ __html: html }} />;
@@ -134,6 +170,77 @@ export function Message({ message, user, streaming, notify }) {
             <span>In Wissens-Inbox vermerkt – diese Frage wurde für die Redaktion erfasst.</span>
           </div>
         )}
+        {bot && (() => {
+          const attachments = [];
+          const seen = new Set();
+          if (Array.isArray(message.sources)) {
+            for (const s of message.sources) {
+              if (Array.isArray(s.attachments)) {
+                for (const att of s.attachments) {
+                  if (!seen.has(att.id)) {
+                    seen.add(att.id);
+                    attachments.push(att);
+                  }
+                }
+              }
+            }
+          }
+          if (attachments.length === 0) return null;
+          return (
+            <div className="message-attachments">
+              <span className="sources-label">
+                <Paperclip size={12} /> ANGEHÄNGTE DATEIEN & BILDER ({attachments.length})
+              </span>
+              <div className="attachment-cards">
+                {attachments.map((att) => {
+                  const resolvedUrl =
+                    typeof window !== 'undefined' &&
+                    window.location.pathname.startsWith('/wissen') &&
+                    att.url.startsWith('/api/')
+                      ? `/wissen${att.url}`
+                      : att.url;
+                  return (
+                    <a
+                      key={att.id}
+                      href={resolvedUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      download={!att.isImage ? att.name : undefined}
+                      className={`attachment-card ${att.isImage ? 'is-image' : 'is-file'}`}
+                      title={
+                        att.isImage
+                          ? `${att.name} (Bild in neuem Tab öffnen)`
+                          : `${att.name} herunterladen`
+                      }
+                    >
+                      <div className="attachment-card-icon">
+                        {att.isImage ? (
+                          <img
+                            src={resolvedUrl}
+                            alt={att.name}
+                            className="attachment-card-thumb"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <File size={20} />
+                        )}
+                      </div>
+                      <div className="attachment-card-info">
+                        <span className="attachment-card-name">{att.name}</span>
+                        <span className="attachment-card-size">
+                          {formatBytes(att.size)} · {att.isImage ? 'Bild' : 'Download'}
+                        </span>
+                      </div>
+                      <span className="attachment-card-action">
+                        {att.isImage ? <ExternalLink size={14} /> : <Download size={14} />}
+                      </span>
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
         {bot && message.sources?.length > 0 && (
           <div className="citations">
             <span className="sources-label">ARTIKEL & QUELLEN</span>
@@ -194,6 +301,42 @@ export function Message({ message, user, streaming, notify }) {
                       )}
                     </div>
                     <p>{source.text}</p>
+                    {source.attachments?.length > 0 && (
+                      <div className="citation-attachments">
+                        <span className="citation-attachments-title">
+                          <Paperclip size={11} /> Beiliegende Dateien:
+                        </span>
+                        <div className="citation-attachment-list">
+                          {source.attachments.map((att) => {
+                            const resUrl =
+                              typeof window !== 'undefined' &&
+                              window.location.pathname.startsWith('/wissen') &&
+                              att.url.startsWith('/api/')
+                                ? `/wissen${att.url}`
+                                : att.url;
+                            return (
+                              <a
+                                key={att.id}
+                                href={resUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                download={!att.isImage ? att.name : undefined}
+                                className="citation-attachment-pill"
+                                title={
+                                  att.isImage
+                                    ? `${att.name} (Bild öffnen)`
+                                    : `${att.name} herunterladen`
+                                }
+                              >
+                                {att.isImage ? <Image size={11} /> : <File size={11} />}
+                                <span>{att.name}</span>
+                                <small>({formatBytes(att.size)})</small>
+                              </a>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                     {source.url && (
                       <a
                         href={source.url}

@@ -55,34 +55,38 @@ export function Login({ bootstrap, onLogin }) {
               Der erste erfolgreich angemeldete Benutzer erhält dauerhaft die Administratorrolle.
             </Notice>
           )}
-          {bootstrap?.loginUrl && (
-            <a className="button primary full" href={bootstrap.loginUrl}>
-              Zum Organisationslogin <ArrowRight size={18} />
-            </a>
+          {bootstrap?.loginUrl ? (
+            <div className="login-actions">
+              <a className="button primary full" href={bootstrap.loginUrl}>
+                Zum Organisationslogin <ArrowRight size={18} />
+              </a>
+              <Notice>{error}</Notice>
+            </div>
+          ) : (
+            <form onSubmit={submit}>
+              <label htmlFor="jwt">Zugangs-Token (JWT)</label>
+              <input
+                id="jwt"
+                type="password"
+                autoComplete="off"
+                spellCheck="false"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="Token deines Identitätsanbieters"
+                required
+                maxLength={16000}
+              />
+              <p className="field-help">
+                Der Token wird von deinem externen Identitätsanbieter ausgestellt. Einen Token vom
+                Organisationsportal kannst du hier direkt verwenden.
+              </p>
+              <Notice>{error}</Notice>
+              <button className="button primary full" disabled={busy || !token.trim()}>
+                {busy ? <Spinner /> : <ArrowRight size={18} />}{' '}
+                {busy ? 'Anmeldung prüfen …' : 'Sicher anmelden'}
+              </button>
+            </form>
           )}
-          <form onSubmit={submit}>
-            <label htmlFor="jwt">Zugangs-Token (JWT)</label>
-            <input
-              id="jwt"
-              type="password"
-              autoComplete="off"
-              spellCheck="false"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="Token deines Identitätsanbieters"
-              required
-              maxLength={16000}
-            />
-            <p className="field-help">
-              Der Token wird von deinem externen Identitätsanbieter ausgestellt. Einen Token vom
-              Organisationsportal kannst du hier direkt verwenden.
-            </p>
-            <Notice>{error}</Notice>
-            <button className="button primary full" disabled={busy || !token.trim()}>
-              {busy ? <Spinner /> : <ArrowRight size={18} />}{' '}
-              {busy ? 'Anmeldung prüfen …' : 'Sicher anmelden'}
-            </button>
-          </form>
           <p className="login-foot">
             <ShieldCheck size={16} /> Chats werden nicht auf dem Server gespeichert.
           </p>

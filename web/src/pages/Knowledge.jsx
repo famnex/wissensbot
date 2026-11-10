@@ -21,9 +21,19 @@ import {
   Download,
   ExternalLink,
   FileUp,
+  Paperclip,
+  Image,
+  File,
 } from 'lucide-react';
-import { Notice, Spinner, Modal, Stat, Status, Pagination } from '../components';
-import { api, uploadFile, uploadImport, downloadExport } from '../api';
+import { Notice, Spinner, Modal, Stat, Status, Pagination, formatBytes } from '../components';
+import {
+  api,
+  uploadFile,
+  uploadImport,
+  downloadExport,
+  uploadChunkAttachment,
+  deleteChunkAttachment,
+} from '../api';
 import { date } from '../shared';
 export function Knowledge({ overview, notify, refresh, initialOpen, onOpened, initialData }) {
   const [sources, setSources] = useState([]);
@@ -753,28 +763,35 @@ function SourceChunksDrawer({ source, notify, refresh, onSourceUpdated, onExport
                   </button>
                 </div>
               </div>
-              {(chunk.location || chunk.url || (source.type === 'url' && source.reference)) && (
-                <div className="chunk-location-row">
-                  {chunk.location && (
-                    <span className="chunk-location-badge" title={chunk.location}>
-                      {chunk.location}
-                    </span>
-                  )}
-                  {(chunk.url || (source.type === 'url' && source.reference)) && (
-                    <a
-                      href={chunk.url || source.reference}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="chunk-link-badge"
-                      title={`${chunk.url || source.reference} in neuem Tab öffnen`}
-                    >
-                      <Globe size={11} />
-                      <span>Webseite</span>
-                      <ExternalLink size={10} />
-                    </a>
-                  )}
-                </div>
-              )}
+              <div className="chunk-location-row">
+                {chunk.location && (
+                  <span className="chunk-location-badge" title={chunk.location}>
+                    {chunk.location}
+                  </span>
+                )}
+                {chunk.attachments?.length > 0 && (
+                  <span
+                    className="chunk-attachment-pill"
+                    title={`${chunk.attachments.length} angehängte Datei(en)`}
+                  >
+                    <Paperclip size={11} /> {chunk.attachments.length}{' '}
+                    {chunk.attachments.length === 1 ? 'Anhang' : 'Anhänge'}
+                  </span>
+                )}
+                {(chunk.url || (source.type === 'url' && source.reference)) && (
+                  <a
+                    href={chunk.url || source.reference}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="chunk-link-badge"
+                    title={`${chunk.url || source.reference} in neuem Tab öffnen`}
+                  >
+                    <Globe size={11} />
+                    <span>Webseite</span>
+                    <ExternalLink size={10} />
+                  </a>
+                )}
+              </div>
               <div className="chunk-text-box">
                 {chunk.text}
               </div>
@@ -845,8 +862,65 @@ function EditChunkModal({ source, chunk, onClose, onSaved }) {
   const [title, setTitle] = useState(chunk.title || '');
   const [location, setLocation] = useState(chunk.location || '');
   const [text, setText] = useState(chunk.text || '');
+  const [attachments, setAttachments] = useState(chunk.attachments || []);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [deletingAttId, setDeletingAttId] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [attError, setAttError] = useState('');
+  const fileInputRef = useRef();
+
+  useEffect(() => {
+    let live = true;
+    api(`/chunks/${chunk.id}/attachments`)
+      .then((data) => {
+        if (live && Array.isArray(data.attachments)) {
+          setAttachments(data.attachments);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [chunk.id]);
+
+  async function handleUploadAttachment(file) {
+    if (!file) return;
+    setUploading(true);
+    setUploadProgress(0);
+    setAttError('');
+    try {
+      const res = await uploadChunkAttachment(chunk.id, file, setUploadProgress);
+      setAttachments((prev) => [...prev, res.attachment]);
+    } catch (err) {
+      setAttError(err.message);
+    } finally {
+      setUploading(false);
+      setUploadProgress(0);
+    }
+  }
+
+  async function handleDeleteAttachment(attachmentId) {
+    setDeletingAttId(attachmentId);
+    setAttError('');
+    try {
+      await deleteChunkAttachment(attachmentId);
+      setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
+    } catch (err) {
+      setAttError(err.message);
+    } finally {
+      setDeletingAttId(null);
+    }
+  }
+
+  function insertAttachmentIntoText(att) {
+    const isImg = (att.mime_type || '').startsWith('image/');
+    const md = isImg
+      ? `\n\n![${att.original_name}](/api/attachments/${att.id}/${encodeURIComponent(att.original_name)})\n`
+      : `\n\n[${att.original_name}](/api/attachments/${att.id}/${encodeURIComponent(att.original_name)})\n`;
+    setText((prev) => prev.trimEnd() + md);
+  }
 
   async function submit(e) {
     e.preventDefault();
@@ -861,7 +935,7 @@ function EditChunkModal({ source, chunk, onClose, onSaved }) {
         method: 'PATCH',
         body: { title, location, text },
       });
-      onSaved(res.chunk);
+      onSaved({ ...res.chunk, attachments });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -874,7 +948,7 @@ function EditChunkModal({ source, chunk, onClose, onSaved }) {
       className="modal-large"
       title="Wissensartikel anpassen & korrigieren"
       onClose={() => {
-        if (!busy) onClose();
+        if (!busy && !uploading) onClose();
       }}
     >
       <div className="chunk-modal-source-info">
@@ -912,6 +986,110 @@ function EditChunkModal({ source, chunk, onClose, onSaved }) {
         <p className="field-help">
           💡 <strong>Hinweis zur KI-Verarbeitung:</strong> Beim Speichern wird der Text automatisch neu analysiert und der Vektor-Index mit Gemini-Embeddings aktualisiert, sodass die KI Ihre Anpassungen sofort präzise für Antworten nutzt.
         </p>
+
+        <div className="chunk-attachments-section">
+          <div className="chunk-attachments-header">
+            <div>
+              <span className="chunk-attachments-title">
+                <Paperclip size={15} /> Angehängte Bilder & Dateien ({attachments.length})
+              </span>
+              <p className="field-help" style={{ margin: 0 }}>
+                Bilder (z. B. Screenshots, Diagramme) oder Dokumente an diesen Wissensartikel anhängen. Der Bot kann sie bei passenden Fragen anzeigen bzw. zum Download anbieten.
+              </p>
+            </div>
+            <div>
+              <input
+                type="file"
+                ref={fileInputRef}
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  if (e.target.files?.[0]) handleUploadAttachment(e.target.files[0]);
+                  e.target.value = '';
+                }}
+              />
+              <button
+                type="button"
+                className="button secondary sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading || busy}
+              >
+                {uploading ? <Spinner /> : <FileUp size={14} />}
+                {uploading ? `Upload (${uploadProgress}%) …` : 'Datei / Bild anhängen'}
+              </button>
+            </div>
+          </div>
+
+          <Notice>{attError}</Notice>
+
+          {attachments.length > 0 && (
+            <div className="chunk-attachments-grid">
+              {attachments.map((att) => {
+                const isImg = (att.mime_type || '').startsWith('image/');
+                const resUrl =
+                  typeof window !== 'undefined' &&
+                  window.location.pathname.startsWith('/wissen')
+                    ? `/wissen/api/attachments/${att.id}/${encodeURIComponent(att.original_name)}`
+                    : `/api/attachments/${att.id}/${encodeURIComponent(att.original_name)}`;
+                return (
+                  <div key={att.id} className="chunk-attachment-row">
+                    <div className="chunk-att-preview">
+                      {isImg ? (
+                        <img
+                          src={resUrl}
+                          alt={att.original_name}
+                          className="chunk-att-thumb"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="chunk-att-icon-box">
+                          <File size={18} />
+                        </div>
+                      )}
+                    </div>
+                    <div className="chunk-att-details">
+                      <span className="chunk-att-name" title={att.original_name}>
+                        {att.original_name}
+                      </span>
+                      <span className="chunk-att-meta">
+                        {formatBytes(att.size)} · {isImg ? 'Bild' : att.mime_type || 'Datei'}
+                      </span>
+                    </div>
+                    <div className="chunk-att-actions">
+                      <button
+                        type="button"
+                        className="button secondary sm"
+                        onClick={() => insertAttachmentIntoText(att)}
+                        title="Markdown-Link / Bild in den Text oben einfügen"
+                      >
+                        In Text einfügen
+                      </button>
+                      <a
+                        href={resUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        download={!isImg ? att.original_name : undefined}
+                        className="button secondary sm icon-only"
+                        title={isImg ? 'Bild in neuem Tab öffnen' : 'Datei herunterladen'}
+                      >
+                        {isImg ? <ExternalLink size={13} /> : <Download size={13} />}
+                      </a>
+                      <button
+                        type="button"
+                        className="button danger sm icon-only"
+                        onClick={() => handleDeleteAttachment(att.id)}
+                        disabled={deletingAttId === att.id}
+                        title="Anhang löschen"
+                      >
+                        {deletingAttId === att.id ? <Spinner /> : <Trash2 size={13} />}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         <Notice>{error}</Notice>
         <div className="modal-actions">
           <button

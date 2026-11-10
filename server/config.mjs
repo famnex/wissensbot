@@ -35,6 +35,7 @@ export function configuration() {
     dataDir,
     dbPath: path.join(dataDir, 'knowledge.sqlite'),
     uploadDir: path.join(dataDir, 'uploads'),
+    attachmentsDir: path.join(dataDir, 'attachments'),
     updateDir: path.join(dataDir, 'updates'),
     production,
     origin: origin.origin,
@@ -70,7 +71,7 @@ export function configuration() {
     throw new Error('RAG_MIN_SCORE muss zwischen 0 und 1 liegen.');
   if (cfg.loginUrl && !cfg.loginUrl.startsWith('https://'))
     throw new Error('AUTH_LOGIN_URL benötigt HTTPS.');
-  for (const dir of [cfg.dataDir, cfg.uploadDir, cfg.updateDir])
+  for (const dir of [cfg.dataDir, cfg.uploadDir, cfg.attachmentsDir, cfg.updateDir])
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   return cfg;
 }

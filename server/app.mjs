@@ -150,10 +150,17 @@ export async function createApp({
     const token = bearer(req);
     if (!token) throw new AppError(401, 'TOKEN_REQUIRED', 'Bitte ein gültiges JWT übergeben.');
     const identity = await verify(token);
-    // Validate cookie size before creating the first administrator.
-    setSession(res, token, config);
     const user = registerIdentity(db, identity);
-    res.json({ user: publicUser(user), expiresAt: identity.expiresAt });
+    const sessionExpiresAt = Date.now() + 365 * 24 * 60 * 60 * 1000;
+    const sessionPayload = JSON.stringify({
+      type: 'session',
+      userId: user.id,
+      issuer: user.issuer,
+      subject: user.subject,
+      expiresAt: sessionExpiresAt,
+    });
+    setSession(res, sessionPayload, config);
+    res.json({ user: publicUser(user), expiresAt: sessionExpiresAt });
   });
   app.post('/api/auth/logout', (_req, res) => {
     setSession(res, null, config);
@@ -218,7 +225,60 @@ export async function createApp({
       inboxOpen: db.prepare("SELECT count(*) n FROM inbox WHERE status='open'").get()?.n || 0,
     });
   });
-  app.use('/api/sources', knowledgeRoutes(db, config, gemini));
+  const knowledge = knowledgeRoutes(db, config, gemini);
+  app.use('/api/sources', knowledge);
+  app.use('/api/chunks', knowledge);
+
+  app.get(
+    ['/api/attachments/:id', '/api/attachments/:id/:filename'],
+    authenticate(db, verify, config),
+    (req, res) => {
+      const attachment = db
+        .prepare(
+          'SELECT id, chunk_id, filename, original_name, mime_type, size FROM chunk_attachments WHERE id=?',
+        )
+        .get(req.params.id);
+      if (!attachment) {
+        throw new AppError(404, 'NOT_FOUND', 'Anhang nicht gefunden.');
+      }
+      const filePath = path.join(config.attachmentsDir, attachment.filename);
+      if (!fs.existsSync(filePath)) {
+        throw new AppError(404, 'NOT_FOUND', 'Datei nicht mehr auf dem Server vorhanden.');
+      }
+      res.setHeader('Content-Type', attachment.mime_type || 'application/octet-stream');
+      res.setHeader('Content-Length', attachment.size);
+      const isImage = (attachment.mime_type || '').startsWith('image/');
+      const disposition = isImage ? 'inline' : 'attachment';
+      res.setHeader(
+        'Content-Disposition',
+        `${disposition}; filename*=UTF-8''${encodeURIComponent(attachment.original_name)}`,
+      );
+      res.setHeader('Cache-Control', 'private, max-age=86400');
+      fs.createReadStream(filePath).pipe(res);
+    },
+  );
+
+  app.delete(
+    '/api/attachments/:id',
+    authenticate(db, verify, config),
+    async (req, res) => {
+      if (!['admin', 'editor'].includes(req.user.role)) {
+        throw new AppError(403, 'FORBIDDEN', 'Keine Berechtigung zum Löschen von Anhängen.');
+      }
+      const attachment = db
+        .prepare('SELECT * FROM chunk_attachments WHERE id=?')
+        .get(req.params.id);
+      if (!attachment) throw new AppError(404, 'NOT_FOUND', 'Anhang nicht gefunden.');
+      db.prepare('DELETE FROM chunk_attachments WHERE id=?').run(attachment.id);
+      if (attachment.filename) {
+        try {
+          await fs.promises.rm(path.join(config.attachmentsDir, attachment.filename), { force: true });
+        } catch {}
+      }
+      res.json({ ok: true, deleted: true, id: attachment.id });
+    },
+  );
+
   app.use('/api/admin', adminRoutes(db, config, gemini));
   app.use('/api/inbox', inboxRoutes(db));
   const inFlight = new Map();
@@ -287,6 +347,7 @@ export async function createApp({
           search,
           messages,
           controller.signal,
+          config,
         );
         res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
         res.setHeader('X-Accel-Buffering', 'no');

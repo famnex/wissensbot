@@ -428,6 +428,11 @@ export function knowledgeRoutes(db, config, gemini = new Gemini(db, config)) {
   });
   router.delete('/:id', async (req, res) => {
     const payloads = db.prepare('SELECT payload FROM jobs WHERE source_id=?').all(req.params.id);
+    const attachments = db
+      .prepare(
+        'SELECT a.filename FROM chunk_attachments a JOIN chunks c ON a.chunk_id=c.id WHERE c.source_id=?',
+      )
+      .all(req.params.id);
     const deleted = db
       .transaction(() => {
         const changed = db.prepare('DELETE FROM sources WHERE id=?').run(req.params.id).changes;
@@ -441,6 +446,10 @@ export function knowledgeRoutes(db, config, gemini = new Gemini(db, config)) {
       if (filename && /^[a-f0-9-]+\.upload$/.test(filename))
         await fs.rm(path.join(config.uploadDir, filename), { force: true });
     }
+    for (const att of attachments) {
+      if (att.filename)
+        await fs.rm(path.join(config.attachmentsDir, att.filename), { force: true });
+    }
     res.json({ ok: true });
   });
   router.get('/:id/chunks', (req, res) => {
@@ -453,6 +462,22 @@ export function knowledgeRoutes(db, config, gemini = new Gemini(db, config)) {
         'SELECT id, source_id, ordinal, title, location, url, text, profile, length(text) as char_count, length(text) as length FROM chunks WHERE source_id=? ORDER BY ordinal ASC',
       )
       .all(source.id);
+    const chunkIds = chunks.map((c) => c.id);
+    const attachmentsByChunk = new Map();
+    if (chunkIds.length > 0) {
+      const allAttachments = db
+        .prepare(
+          `SELECT id, chunk_id, filename, original_name, mime_type, size, created_at FROM chunk_attachments WHERE chunk_id IN (${chunkIds.map(() => '?').join(',')}) ORDER BY created_at ASC`,
+        )
+        .all(...chunkIds);
+      for (const att of allAttachments) {
+        if (!attachmentsByChunk.has(att.chunk_id)) attachmentsByChunk.set(att.chunk_id, []);
+        attachmentsByChunk.get(att.chunk_id).push(att);
+      }
+    }
+    for (const c of chunks) {
+      c.attachments = attachmentsByChunk.get(c.id) || [];
+    }
     res.json({ source, chunks });
   });
   router.post('/:id/chunks', async (req, res) => {
@@ -582,7 +607,7 @@ export function knowledgeRoutes(db, config, gemini = new Gemini(db, config)) {
       .get(chunk.id);
     res.json({ chunk: updated });
   });
-  router.delete('/:id/chunks/:chunkId', (req, res) => {
+  router.delete('/:id/chunks/:chunkId', async (req, res) => {
     const source = db.prepare('SELECT * FROM sources WHERE id=?').get(req.params.id);
     if (!source) throw new AppError(404, 'NOT_FOUND', 'Quelle nicht gefunden.');
 
@@ -590,6 +615,10 @@ export function knowledgeRoutes(db, config, gemini = new Gemini(db, config)) {
       .prepare('SELECT * FROM chunks WHERE id=? AND source_id=?')
       .get(req.params.chunkId, source.id);
     if (!chunk) throw new AppError(404, 'NOT_FOUND', 'Wissensabschnitt nicht gefunden.');
+
+    const attachments = db
+      .prepare('SELECT filename FROM chunk_attachments WHERE chunk_id=?')
+      .all(chunk.id);
 
     db.transaction(() => {
       db.prepare('DELETE FROM chunks WHERE id=?').run(chunk.id);
@@ -604,7 +633,89 @@ export function knowledgeRoutes(db, config, gemini = new Gemini(db, config)) {
       audit(db, req.user.id, 'chunk_deleted', chunk.id);
     })();
 
+    for (const att of attachments) {
+      if (att.filename)
+        await fs.rm(path.join(config.attachmentsDir, att.filename), { force: true });
+    }
+
     res.json({ ok: true, deleted: true, chunkId: chunk.id });
   });
+
+  const attachmentUpload = multer({
+    storage: multer.diskStorage({
+      destination: config.attachmentsDir,
+      filename: (_req, file, cb) => {
+        const ext = path.extname(file.originalname).slice(0, 16);
+        cb(null, `${randomUUID()}${ext}`);
+      },
+    }),
+    limits: { fileSize: config.uploadMaxBytes, files: 1 },
+  });
+
+  router.get(
+    ['/:chunkId/attachments', '/chunks/:chunkId/attachments', '/:id/chunks/:chunkId/attachments'],
+    (req, res) => {
+      const chunkId = Number(req.params.chunkId);
+      const chunk = db.prepare('SELECT id, source_id FROM chunks WHERE id=?').get(chunkId);
+      if (!chunk) throw new AppError(404, 'NOT_FOUND', 'Wissensabschnitt nicht gefunden.');
+      const attachments = db
+        .prepare(
+          'SELECT id, chunk_id, filename, original_name, mime_type, size, created_at FROM chunk_attachments WHERE chunk_id=? ORDER BY created_at ASC',
+        )
+        .all(chunkId);
+      res.json({ attachments });
+    },
+  );
+
+  router.post(
+    ['/:chunkId/attachments', '/chunks/:chunkId/attachments', '/:id/chunks/:chunkId/attachments'],
+    attachmentUpload.single('file'),
+    async (req, res) => {
+      const chunkId = Number(req.params.chunkId);
+      const chunk = db.prepare('SELECT id, source_id FROM chunks WHERE id=?').get(chunkId);
+      if (!chunk) {
+        if (req.file) await fs.rm(req.file.path, { force: true });
+        throw new AppError(404, 'NOT_FOUND', 'Wissensabschnitt nicht gefunden.');
+      }
+      if (!req.file)
+        throw new AppError(400, 'FILE_MISSING', 'Bitte eine Datei zum Anhängen auswählen.');
+
+      const attachmentId = randomUUID();
+      const storedFilename = req.file.filename;
+      const originalName = req.file.originalname.slice(0, 255);
+      const mimeType = req.file.mimetype || 'application/octet-stream';
+      const size = req.file.size;
+      const now = Date.now();
+
+      db.prepare(
+        'INSERT INTO chunk_attachments(id, chunk_id, filename, original_name, mime_type, size, created_at) VALUES(?,?,?,?,?,?,?)',
+      ).run(attachmentId, chunk.id, storedFilename, originalName, mimeType, size, now);
+
+      audit(db, req.user.id, 'chunk_attachment_created', attachmentId);
+
+      const attachment = db
+        .prepare(
+          'SELECT id, chunk_id, filename, original_name, mime_type, size, created_at FROM chunk_attachments WHERE id=?',
+        )
+        .get(attachmentId);
+
+      res.status(201).json({ attachment });
+    },
+  );
+
+  router.delete('/attachments/:id', async (req, res) => {
+    const attachment = db
+      .prepare('SELECT * FROM chunk_attachments WHERE id=?')
+      .get(req.params.id);
+    if (!attachment) throw new AppError(404, 'NOT_FOUND', 'Anhang nicht gefunden.');
+
+    db.prepare('DELETE FROM chunk_attachments WHERE id=?').run(attachment.id);
+    if (attachment.filename) {
+      await fs.rm(path.join(config.attachmentsDir, attachment.filename), { force: true });
+    }
+    audit(db, req.user.id, 'chunk_attachment_deleted', attachment.id);
+    res.json({ ok: true, deleted: true, id: attachment.id });
+  });
+
   return router;
 }

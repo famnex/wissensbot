@@ -210,21 +210,59 @@ export function setSession(res, token, config) {
     throw new AppError(
       400,
       'TOKEN_TOO_LARGE',
-      'Das JWT ist zu groß für die Browser-Anmeldung. Der Anbieter muss unnötige Claims entfernen. Die Bearer-API unterstützt größere Tokens.',
+      'Das Token ist zu groß für die Browser-Anmeldung. Der Anbieter muss unnötige Claims entfernen. Die Bearer-API unterstützt größere Tokens.',
     );
   res.cookie(config.production ? '__Host-wissensraum' : 'wissensraum', value, {
     httpOnly: true,
     secure: config.production,
     sameSite: 'strict',
     path: '/',
-    ...(token ? {} : { maxAge: 0 }),
+    ...(token ? { maxAge: 365 * 24 * 60 * 60 * 1000 } : { maxAge: 0 }),
   });
 }
 export function authenticate(db, verify, config) {
   return async (req, _res, next) => {
-    const token = sessionToken(req, config);
-    if (!token) throw new AppError(401, 'LOGIN_REQUIRED', 'Bitte anmelden.');
-    const identity = await verify(token);
+    if (bearer(req)) {
+      const token = bearer(req);
+      const identity = await verify(token);
+      const user = db
+        .prepare('SELECT * FROM users WHERE issuer=? AND subject=?')
+        .get(identity.issuer, identity.subject);
+      if (!user) throw new AppError(401, 'LOGIN_REQUIRED', 'Bitte zuerst die Anmeldung abschließen.');
+      if (!user.enabled) throw new AppError(403, 'USER_DISABLED', 'Dieser Zugang wurde deaktiviert.');
+      req.user = user;
+      req.identity = identity;
+      return next();
+    }
+
+    const raw = sessionToken(req, config);
+    if (!raw) throw new AppError(401, 'LOGIN_REQUIRED', 'Bitte anmelden.');
+
+    if (raw.startsWith('{"type":"session"')) {
+      try {
+        const session = JSON.parse(raw);
+        if (session.expiresAt && session.expiresAt < Date.now()) {
+          throw new AppError(401, 'LOGIN_REQUIRED', 'Die Sitzung ist abgelaufen. Bitte neu anmelden.');
+        }
+        const user = db.prepare('SELECT * FROM users WHERE id=?').get(session.userId);
+        if (!user) throw new AppError(401, 'LOGIN_REQUIRED', 'Benutzerkonto nicht gefunden.');
+        if (!user.enabled) throw new AppError(403, 'USER_DISABLED', 'Dieser Zugang wurde deaktiviert.');
+        req.user = user;
+        req.identity = {
+          subject: user.subject,
+          issuer: user.issuer,
+          email: user.email,
+          name: user.name,
+          expiresAt: session.expiresAt,
+        };
+        return next();
+      } catch (err) {
+        if (err instanceof AppError) throw err;
+        throw new AppError(401, 'INVALID_TOKEN', 'Ungültige Sitzung.');
+      }
+    }
+
+    const identity = await verify(raw);
     const user = db
       .prepare('SELECT * FROM users WHERE issuer=? AND subject=?')
       .get(identity.issuer, identity.subject);

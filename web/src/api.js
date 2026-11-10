@@ -110,6 +110,40 @@ export function uploadFile(file, title, onProgress) {
   });
 }
 
+export function uploadChunkAttachment(chunkId, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', apiEndpoint(`/api/chunks/${chunkId}/attachments`));
+    xhr.setRequestHeader('X-CSRF-Guard', '1');
+    xhr.timeout = 180000;
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress)
+        onProgress(Math.round((event.loaded / event.total) * 100));
+    };
+    xhr.onerror = () => reject(new Error('Die Übertragung wurde unterbrochen.'));
+    xhr.ontimeout = () => reject(new Error('Die Übertragung hat zu lange gedauert.'));
+    xhr.onload = () => {
+      let data;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        return reject(new Error('Der Upload des Anhangs ist fehlgeschlagen.'));
+      }
+      if (xhr.status === 401) window.dispatchEvent(new Event('session-expired'));
+      xhr.status < 300
+        ? resolve(data)
+        : reject(new Error(data.error?.message || 'Upload fehlgeschlagen.'));
+    };
+    const form = new FormData();
+    form.append('file', file);
+    xhr.send(form);
+  });
+}
+
+export function deleteChunkAttachment(attachmentId) {
+  return api(`/attachments/${attachmentId}`, { method: 'DELETE' });
+}
+
 export function uploadImport(file, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();

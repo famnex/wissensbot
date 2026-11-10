@@ -30,6 +30,7 @@ Es dient als Referenz für die Funktionsweise, Migrationen und spätere Update-S
 | `runtime` | Flüchtige Laufzeitmetadaten (z. B. Worker-Heartbeat) | `key` |
 | `audit` | Revisionssicheres Audit-Log administrativer Aktionen | `id` |
 | `inbox` | Wissens-Inbox für unbeantwortete Fragen und Wissenslücken | `id` |
+| `chunk_attachments` | Dateianhänge und Bilder für einzelne Wissensartikel (Chunks) | `id` |
 
 ---
 
@@ -52,6 +53,7 @@ CREATE TABLE schema_migrations (
 1. `001_initial.sql`: Initiales Datenbankschema (Tabellen: `users`, `settings`, `sources`, `chunks`, `jobs`, `runtime`, `audit`).
 2. `002_chunk_titles.sql`: `ALTER TABLE chunks ADD COLUMN title TEXT;` für editierbare Chunk-Titel.
 3. `003_unanswered_inbox.sql`: `CREATE TABLE inbox (...);` für die Wissens-Inbox unbeantworteter Fragen.
+4. `004_chunk_attachments.sql`: `CREATE TABLE chunk_attachments (...);` für Dateianhänge und Bilder an Chunks.
 
 ---
 
@@ -242,3 +244,29 @@ CREATE INDEX idx_inbox_question ON inbox(question);
   - `dismissed`: Frage wurde verworfen (z. B. Spam oder irrelevant).
 - `note`: Optionale interne Notiz für Redakteure/Administratoren.
 - `created_at` / `updated_at`: Unix-Zeitstempel in Millisekunden.
+
+---
+
+### 10. `chunk_attachments`
+Verwaltet Bilder und Dateien, die direkt an Wissensartikel (Chunks) angehängt sind:
+```sql
+CREATE TABLE chunk_attachments (
+  id TEXT PRIMARY KEY,
+  chunk_id INTEGER NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,
+  filename TEXT NOT NULL,
+  original_name TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX idx_chunk_attachments_chunk ON chunk_attachments(chunk_id);
+```
+- `id`: Eindeutige UUID des Anhangs.
+- `chunk_id`: Fremdschlüssel auf den zugehörigen Chunk (`chunks.id`). Wird bei Löschung des Chunks oder der Quelle kaskadierend mitgelöscht.
+- `filename`: Physischer Dateiname auf der Festplatte im Verzeichnis `$DATA_DIR/attachments/<filename>` (z. B. `<uuid>.<ext>`).
+- `original_name`: Ursprünglicher Dateiname beim Upload (z. B. `netzwerkplan.png`, `richtlinie.pdf`).
+- `mime_type`: MIME-Typ der Datei (z. B. `image/png`, `application/pdf`).
+- `size`: Dateigröße in Bytes.
+- `created_at`: Unix-Zeitstempel des Uploads.
+- **Bot-Integration:** Beim RAG-Retrieval werden gefundene Chunks inklusive ihrer Anhänge an das Chat-Modell übergeben. Das Modell bettet Bilder als `![Name](/api/attachments/:id/:filename)` ein und bietet Dokumente als Download-Links `[Name](/api/attachments/:id/:filename)` an. Zudem rendert das Chat-Frontend interaktive Dateikarten unter den Antworten.
