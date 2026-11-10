@@ -12,8 +12,24 @@ import { enqueue } from '../services/jobs.mjs';
 export function adminRoutes(db, config, gemini) {
   const router = Router();
   router.use(requireRole('admin'));
-  router.get('/settings', (_req, res) =>
-    res.json({
+  router.get('/settings', (_req, res) => {
+    let sso = {
+      enabled: false,
+      loginUrl: 'https://cloud.mso-hef.de/novus/api/tiles/sso/',
+      paramName: 'sso_token',
+      usernameClaim: 'username',
+      nameClaim: 'display_name',
+      emailClaim: 'email',
+      hasSecret: Boolean(getSetting(db, 'sso_secret')),
+    };
+    const ssoConfigRaw = getSetting(db, 'sso_config');
+    if (ssoConfigRaw) {
+      try {
+        const parsed = JSON.parse(ssoConfigRaw);
+        sso = { ...sso, ...parsed, hasSecret: Boolean(getSetting(db, 'sso_secret')) };
+      } catch {}
+    }
+    return res.json({
       hasKey: Boolean(getSetting(db, 'gemini_key')),
       chatModel: JSON.parse(getSetting(db, 'chat_model', 'null')),
       embeddingModel: gemini.embeddingModel(),
@@ -23,11 +39,52 @@ export function adminRoutes(db, config, gemini) {
         issuer: config.auth.issuer,
         audience: config.auth.audience,
       },
+      sso,
       updatesEnabled: config.allowUpdates,
       updateRepository: config.updateRepository,
       updateBranch: config.updateBranch,
-    }),
-  );
+    });
+  });
+
+  router.put('/sso', async (req, res) => {
+    const value = z
+      .object({
+        enabled: z.boolean(),
+        loginUrl: z.string().trim().max(1000).optional().default(''),
+        secret: z.string().trim().max(1000).optional(),
+        paramName: z.string().trim().max(100).optional().default('sso_token'),
+        usernameClaim: z.string().trim().max(100).optional().default('username'),
+        nameClaim: z.string().trim().max(100).optional().default('display_name'),
+        emailClaim: z.string().trim().max(100).optional().default('email'),
+      })
+      .strict()
+      .parse(req.body);
+
+    db.transaction(() => {
+      if (value.secret) {
+        setSetting(db, 'sso_secret', seal(value.secret, config.encryptionKey, 'sso-secret'));
+      }
+      const configToStore = {
+        enabled: value.enabled,
+        loginUrl: value.loginUrl,
+        paramName: value.paramName || 'sso_token',
+        usernameClaim: value.usernameClaim || 'username',
+        nameClaim: value.nameClaim || 'display_name',
+        emailClaim: value.emailClaim || 'email',
+      };
+      setSetting(db, 'sso_config', JSON.stringify(configToStore));
+      audit(db, req.user.id, 'sso_settings_changed');
+    }).immediate();
+
+    res.json({
+      ok: true,
+      sso: {
+        ...value,
+        hasSecret: Boolean(getSetting(db, 'sso_secret')),
+        secret: undefined,
+      },
+    });
+  });
   router.get('/models', async (_req, res) => res.json(await gemini.models()));
   router.put('/key', async (req, res) => {
     const { apiKey } = z

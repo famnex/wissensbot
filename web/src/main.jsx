@@ -312,10 +312,18 @@ function App() {
     </div>
   );
 }
-// Accept an explicit IdP hand-off only in the URL fragment; remove it before any network request.
-const initial = new URLSearchParams(location.hash.slice(1));
-if (initial.has('access_token')) {
-  window.__initialAccessToken = initial.get('access_token');
-  history.replaceState(null, '', location.pathname + location.search);
+// Accept IdP hand-off in URL search query or fragment hash; strip it immediately before any network request.
+const hashParams = new URLSearchParams(location.hash.slice(1));
+const searchParams = new URLSearchParams(location.search);
+const tokenKey = ['sso_token', 'access_token', 'token', 'jwt'].find(
+  (k) => hashParams.has(k) || searchParams.has(k),
+);
+if (tokenKey) {
+  window.__initialAccessToken = hashParams.get(tokenKey) || searchParams.get(tokenKey);
+  hashParams.delete(tokenKey);
+  searchParams.delete(tokenKey);
+  const cleanSearch = searchParams.toString() ? `?${searchParams.toString()}` : '';
+  const cleanHash = hashParams.toString() ? `#${hashParams.toString()}` : '';
+  history.replaceState(null, '', location.pathname + cleanSearch + cleanHash);
 }
 createRoot(document.getElementById('root')).render(<App />);

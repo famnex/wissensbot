@@ -32,7 +32,7 @@ export async function createApp({
   retriever,
   revision = 'local',
 }) {
-  const verify = await createVerifier(config);
+  const verify = await createVerifier(config, db);
   const search = retriever || new Retriever(config);
   const app = express();
   app.disable('x-powered-by');
@@ -122,9 +122,21 @@ export async function createApp({
     next();
   });
   app.use('/api', express.json({ limit: '2mb', strict: true }));
-  app.get('/api/bootstrap', (_req, res) =>
-    res.json({ setup: !getSetting(db, 'first_admin_completed'), loginUrl: config.loginUrl }),
-  );
+  app.get('/api/bootstrap', (_req, res) => {
+    let loginUrl = config.loginUrl;
+    let ssoParam = 'sso_token';
+    const ssoConfigRaw = getSetting(db, 'sso_config');
+    if (ssoConfigRaw) {
+      try {
+        const sso = JSON.parse(ssoConfigRaw);
+        if (sso.enabled && sso.loginUrl) {
+          loginUrl = sso.loginUrl;
+          ssoParam = sso.paramName || 'sso_token';
+        }
+      } catch {}
+    }
+    res.json({ setup: !getSetting(db, 'first_admin_completed'), loginUrl, ssoParam });
+  });
   const loginLimit = rateLimit({
     windowMs: 60000,
     limit: 15,

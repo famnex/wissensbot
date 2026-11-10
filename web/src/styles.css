@@ -2674,6 +2674,17 @@ progress::-moz-progress-bar {
   }
 }
 
+.saved-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #166534;
+  background: #dcfce7;
+  border-radius: 4px;
+}
+
 /* Wissens-Inbox & Wissenslücken Styles */
 .inbox-notice {
   display: inline-flex;

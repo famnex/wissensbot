@@ -5,7 +5,7 @@ import { AppError } from './lib/errors.mjs';
 import { getSetting, setSetting, audit } from './db/index.mjs';
 import { seal, unseal } from './lib/secrets.mjs';
 
-export async function createVerifier(config) {
+export async function createEnvVerifier(config) {
   const auth = config.auth;
   let key;
   if (auth.mode === 'secret') {
@@ -29,37 +29,107 @@ export async function createVerifier(config) {
     } else throw new Error('JWT_MODE muss jwks, public_key oder secret sein.');
   }
   return async (token) => {
-    try {
-      if (typeof token !== 'string' || token.length > 16000) throw new Error('Token length');
-      const { payload } = await jwtVerify(token, key, {
-        issuer: auth.issuer,
-        audience: auth.audience,
-        algorithms: [auth.algorithm],
-        clockTolerance: 5,
-        maxTokenAge: auth.maxAge,
-        requiredClaims: ['sub', 'iss', 'aud', 'exp', 'iat', 'email', 'name'],
-      });
-      if (
-        ![payload.sub, payload.email, payload.name].every(
-          (x) => typeof x === 'string' && x.trim().length > 0 && x.length <= 320,
-        )
+    const { payload } = await jwtVerify(token, key, {
+      issuer: auth.issuer,
+      audience: auth.audience,
+      algorithms: [auth.algorithm],
+      clockTolerance: 5,
+      maxTokenAge: auth.maxAge,
+      requiredClaims: ['sub', 'iss', 'aud', 'exp', 'iat', 'email', 'name'],
+    });
+    if (
+      ![payload.sub, payload.email, payload.name].every(
+        (x) => typeof x === 'string' && x.trim().length > 0 && x.length <= 320,
       )
-        throw new Error('Claims');
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) throw new Error('Email');
-      return {
-        subject: payload.sub,
-        issuer: payload.iss,
-        email: payload.email,
-        name: payload.name,
-        expiresAt: payload.exp * 1000,
-      };
-    } catch {
-      throw new AppError(
-        401,
-        'INVALID_TOKEN',
-        'Die Anmeldung ist ungültig oder abgelaufen. Bitte erneut über deinen Identitätsanbieter anmelden.',
-      );
+    )
+      throw new Error('Claims');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) throw new Error('Email');
+    return {
+      subject: payload.sub,
+      issuer: payload.iss,
+      email: payload.email,
+      name: payload.name,
+      expiresAt: payload.exp * 1000,
+    };
+  };
+}
+
+export async function createVerifier(config, db = null) {
+  let envVerifier = null;
+  try {
+    envVerifier = await createEnvVerifier(config);
+  } catch (err) {
+    // If .env is not yet configured, we still allow starting if db-based SSO is configured
+  }
+
+  return async (token) => {
+    if (typeof token !== 'string' || token.length > 16000) {
+      throw new AppError(401, 'INVALID_TOKEN', 'Ungültiges Token-Format.');
     }
+
+    // 1. Check if custom SSO is configured in database (e.g. cloud.mso-hef.de)
+    if (db) {
+      try {
+        const ssoConfigRaw = getSetting(db, 'sso_config');
+        const encSecret = getSetting(db, 'sso_secret');
+        if (ssoConfigRaw && encSecret) {
+          const sso = JSON.parse(ssoConfigRaw);
+          if (sso.enabled) {
+            const secret = unseal(encSecret, config.encryptionKey, 'sso-secret');
+            const key = new TextEncoder().encode(secret);
+            const { payload } = await jwtVerify(token, key, {
+              algorithms: ['HS256', 'RS256'],
+              clockTolerance: 60,
+            });
+
+            const username = String(
+              payload[sso.usernameClaim || 'username'] || payload.username || payload.sub || '',
+            ).trim();
+            const name = String(
+              payload[sso.nameClaim || 'display_name'] ||
+                payload.display_name ||
+                payload.name ||
+                username,
+            ).trim();
+            let email = String(payload[sso.emailClaim || 'email'] || payload.email || '').trim();
+            if (!email || !email.includes('@')) {
+              email = `${username || 'user'}@cloud.mso-hef.de`;
+            }
+
+            if (username && name) {
+              return {
+                subject: username,
+                issuer: payload.iss || 'cloud.mso-hef.de',
+                email,
+                name,
+                expiresAt: payload.exp ? payload.exp * 1000 : Date.now() + 86400000,
+              };
+            }
+          }
+        }
+      } catch (ssoErr) {
+        // Custom SSO verification failed, try env verifier below
+      }
+    }
+
+    // 2. Fall back to standard .env verifier
+    if (envVerifier) {
+      try {
+        return await envVerifier(token);
+      } catch (err) {
+        throw new AppError(
+          401,
+          'INVALID_TOKEN',
+          'Die Anmeldung ist ungültig oder abgelaufen. Bitte erneut über deinen Identitätsanbieter anmelden.',
+        );
+      }
+    }
+
+    throw new AppError(
+      401,
+      'INVALID_TOKEN',
+      'Die Anmeldung ist ungültig oder abgelaufen. Bitte erneut über deinen Identitätsanbieter anmelden.',
+    );
   };
 }
 export function registerIdentity(db, identity) {

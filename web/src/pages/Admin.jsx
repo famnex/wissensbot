@@ -83,6 +83,58 @@ function Models({ settings, reload, notify }) {
   const [embedding, setEmbedding] = useState(settings.embeddingModel);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+
+  // SSO settings state
+  const [ssoEnabled, setSsoEnabled] = useState(settings.sso?.enabled ?? false);
+  const [ssoLoginUrl, setSsoLoginUrl] = useState(
+    settings.sso?.loginUrl || 'https://cloud.mso-hef.de/novus/api/tiles/sso/',
+  );
+  const [ssoSecret, setSsoSecret] = useState('');
+  const [ssoParamName, setSsoParamName] = useState(settings.sso?.paramName || 'sso_token');
+  const [ssoUsernameClaim, setSsoUsernameClaim] = useState(
+    settings.sso?.usernameClaim || 'username',
+  );
+  const [ssoNameClaim, setSsoNameClaim] = useState(
+    settings.sso?.nameClaim || 'display_name',
+  );
+  const [ssoEmailClaim, setSsoEmailClaim] = useState(settings.sso?.emailClaim || 'email');
+  const [showAdvancedSso, setShowAdvancedSso] = useState(false);
+  const hasSsoSecret = settings.sso?.hasSecret ?? false;
+
+  function generateSsoSecret() {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_!*';
+    const arr = new Uint8Array(48);
+    crypto.getRandomValues(arr);
+    const generated = Array.from(arr, (b) => chars[b % chars.length]).join('');
+    setSsoSecret(generated);
+  }
+
+  async function saveSso(event) {
+    event.preventDefault();
+    setBusy('sso');
+    setError('');
+    try {
+      await api('/admin/sso', {
+        method: 'PUT',
+        body: {
+          enabled: ssoEnabled,
+          loginUrl: ssoLoginUrl.trim(),
+          secret: ssoSecret.trim() || undefined,
+          paramName: ssoParamName.trim(),
+          usernameClaim: ssoUsernameClaim.trim(),
+          nameClaim: ssoNameClaim.trim(),
+          emailClaim: ssoEmailClaim.trim(),
+        },
+      });
+      setSsoSecret('');
+      reload();
+      notify('Single Sign-On Einstellungen erfolgreich gespeichert.');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy('');
+    }
+  }
   const loadModels = useCallback(async () => {
     setBusy('list');
     setError('');
@@ -283,10 +335,158 @@ function Models({ settings, reload, notify }) {
           </form>
         </section>
       </div>
-      <section className="panel auth-card">
+      <section className="panel settings-card sso-card" style={{ marginTop: '20px' }}>
+        <div className="card-heading">
+          <span className="card-icon">
+            <ShieldCheck size={21} />
+          </span>
+          <div>
+            <h3>Single Sign-On (SSO / JWT Identity Provider)</h3>
+            <p>
+              Verbinde deinen Identity Provider (z. B. <strong>cloud.mso-hef.de</strong>), damit sich Nutzer ohne manuelle Tokeneingabe per Klick anmelden können.
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={saveSso}>
+          <div className="form-group" style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: 600 }}>
+              <input
+                type="checkbox"
+                checked={ssoEnabled}
+                onChange={(e) => setSsoEnabled(e.target.checked)}
+                style={{ width: '18px', height: '18px' }}
+              />
+              <span>SSO Identity Provider aktivieren</span>
+            </label>
+            <p className="field-help">
+              Aktiviert die automatische Prüfung eingehender SSO-Tokens und blendet den Login-Button „Zum Organisationslogin“ ein.
+            </p>
+          </div>
+
+          <label htmlFor="sso-login-url">SSO Identity Provider Login-URL</label>
+          <input
+            id="sso-login-url"
+            type="url"
+            value={ssoLoginUrl}
+            onChange={(e) => setSsoLoginUrl(e.target.value)}
+            placeholder="https://cloud.mso-hef.de/novus/api/tiles/sso/"
+            required={ssoEnabled}
+          />
+          <p className="field-help">
+            Auf diese URL verlinkt der Button <em>„Zum Organisationslogin“</em> im Anmeldefenster.
+          </p>
+
+          <label htmlFor="sso-secret">
+            SSO Signierschlüssel (Secret) {hasSsoSecret && <span className="saved-badge">✓ Gespeichert</span>}
+          </label>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input
+              id="sso-secret"
+              type="text"
+              value={ssoSecret}
+              onChange={(e) => setSsoSecret(e.target.value)}
+              placeholder={hasSsoSecret ? '●●●●●●●● (Neuen Schlüssel eingeben zum Ändern)' : 'Geheimer kryptographischer Schlüssel'}
+              required={ssoEnabled && !hasSsoSecret}
+              style={{ flex: 1, fontFamily: 'monospace' }}
+            />
+            <button
+              type="button"
+              className="button secondary"
+              onClick={generateSsoSecret}
+              title="Zufälligen sicheren Schlüssel generieren"
+            >
+              Generieren
+            </button>
+          </div>
+          <p className="field-help">
+            Diesen Signierschlüssel teilen Sie mit dem Identity Provider (z. B. in den SSO-Einstellungen der Cloud-Kachel).
+          </p>
+
+          <div style={{ margin: '14px 0' }}>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => setShowAdvancedSso(!showAdvancedSso)}
+              style={{ fontSize: '0.85rem', color: '#2b5cb8', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }}
+            >
+              {showAdvancedSso ? '▲ Erweiterte Feldzuordnungen ausblenden' : '▼ Erweiterte Feldzuordnungen anzeigen (URL-Parameter & Claims)'}
+            </button>
+          </div>
+
+          {showAdvancedSso && (
+            <div className="sso-advanced-box" style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                <div>
+                  <label htmlFor="sso-param">URL Query Parameter Name</label>
+                  <input
+                    id="sso-param"
+                    type="text"
+                    value={ssoParamName}
+                    onChange={(e) => setSsoParamName(e.target.value)}
+                    placeholder="sso_token"
+                  />
+                  <p className="field-help">Standard: sso_token</p>
+                </div>
+                <div>
+                  <label htmlFor="sso-user-claim">Username Claim Name</label>
+                  <input
+                    id="sso-user-claim"
+                    type="text"
+                    value={ssoUsernameClaim}
+                    onChange={(e) => setSsoUsernameClaim(e.target.value)}
+                    placeholder="username"
+                  />
+                  <p className="field-help">Standard: username</p>
+                </div>
+                <div>
+                  <label htmlFor="sso-name-claim">Klarname Claim Name</label>
+                  <input
+                    id="sso-name-claim"
+                    type="text"
+                    value={ssoNameClaim}
+                    onChange={(e) => setSsoNameClaim(e.target.value)}
+                    placeholder="display_name"
+                  />
+                  <p className="field-help">Standard: display_name</p>
+                </div>
+                <div>
+                  <label htmlFor="sso-email-claim">E-Mail Claim Name</label>
+                  <input
+                    id="sso-email-claim"
+                    type="text"
+                    value={ssoEmailClaim}
+                    onChange={(e) => setSsoEmailClaim(e.target.value)}
+                    placeholder="email"
+                  />
+                  <p className="field-help">Standard: email</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="sso-info-callout" style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '14px', marginBottom: '16px', fontSize: '0.85rem', color: '#166534' }}>
+            <strong>ℹ️ Einstellungen für deinen Identity Provider (z. B. cloud.mso-hef.de):</strong>
+            <ul style={{ margin: '8px 0 0', paddingLeft: '20px', lineHeight: 1.6 }}>
+              <li><strong>Ziel-URL (Redirect URL):</strong> <code>{typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : 'https://deine-domain.de/wissen/'}</code></li>
+              <li><strong>URL Query Parameter Name:</strong> <code>{ssoParamName || 'sso_token'}</code></li>
+              <li><strong>Username Claim:</strong> <code>{ssoUsernameClaim || 'username'}</code></li>
+              <li><strong>Klarname Claim:</strong> <code>{ssoNameClaim || 'display_name'}</code></li>
+              <li><strong>E-Mail Claim:</strong> <code>{ssoEmailClaim || 'email'}</code></li>
+              <li><strong>Signierschlüssel:</strong> Denselben Schlüssel eintragen wie oben angegeben.</li>
+            </ul>
+          </div>
+
+          <button className="button primary" disabled={busy === 'sso'}>
+            {busy === 'sso' ? <Spinner /> : <Check size={17} />} SSO-Einstellungen speichern
+          </button>
+        </form>
+      </section>
+
+      <section className="panel auth-card" style={{ marginTop: '20px' }}>
         <div>
           <ShieldCheck size={22} />
-          <h2>Identität & Anmeldung</h2>
+          <h2>Server-Authentifizierung (.env)</h2>
         </div>
         <dl>
           <dt>Signaturprüfung</dt>
@@ -299,8 +499,7 @@ function Models({ settings, reload, notify }) {
           <dd>{settings.auth.audience}</dd>
         </dl>
         <p>
-          Vertrauenswürdige Schlüssel werden über die Server-Konfiguration verwaltet. Berechtigungen
-          stammen ausschließlich aus der lokalen Benutzerverwaltung.
+          Vertrauenswürdige Schlüssel werden über die Server-Konfiguration oder das obige SSO-Modul verwaltet. Berechtigungen stammen ausschließlich aus der lokalen Benutzerverwaltung.
         </p>
       </section>
     </>

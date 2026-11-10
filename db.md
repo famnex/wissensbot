@@ -92,6 +92,8 @@ Bekannte Schlüssel:
 - `gemini_api_key`: AES-256-GCM verschlüsselter String (mit `APP_ENCRYPTION_KEY`).
 - `gemini_chat_model`: Name des konfigurierten Chat-Modells (z. B. `models/gemini-2.5-flash`).
 - `gemini_embedding_model`: Name des Embedding-Modells (z. B. `models/gemini-embedding-001`).
+- `sso_config`: JSON-Objekt mit den im Adminbereich konfigurierten SSO-Parametern (`enabled`, `loginUrl`, `paramName`, `usernameClaim`, `nameClaim`, `emailClaim`).
+- `sso_secret`: AES-256-GCM verschlüsselter Signierschlüssel (`sso-secret`) für HMAC-HS256 SSO-Tokens.
 
 ---
 

@@ -200,3 +200,63 @@ test('Unauthorized and oversized uploads leave no files behind', async (t) => {
   assert.equal(removed.status, 200);
   assert.deepEqual(await fs.readdir(h.config.uploadDir), []);
 });
+
+test('SSO configuration via Admin UI allows seamless IdP authentication with custom claims', async (t) => {
+  const h = await harness(t);
+  const admin = await h.login('admin-user');
+
+  // 1. Verify initial settings include default sso object
+  const settingsRes = await admin.client.get('/api/admin/settings');
+  assert.equal(settingsRes.status, 200);
+  assert.equal(settingsRes.body.sso.enabled, false);
+  assert.equal(settingsRes.body.sso.hasSecret, false);
+
+  // 2. Configure SSO settings via PUT /api/admin/sso
+  const ssoSecret = 'mein-geheimer-kryptographischer-sso-schluessel-12345';
+  const saveRes = await h.csrf(admin.client.put('/api/admin/sso')).send({
+    enabled: true,
+    loginUrl: 'https://cloud.mso-hef.de/novus/api/tiles/sso/',
+    secret: ssoSecret,
+    paramName: 'sso_token',
+    usernameClaim: 'username',
+    nameClaim: 'display_name',
+    emailClaim: 'email',
+  });
+  assert.equal(saveRes.status, 200);
+  assert.equal(saveRes.body.sso.enabled, true);
+  assert.equal(saveRes.body.sso.hasSecret, true);
+
+  // 3. Verify GET /api/bootstrap now returns the SSO login URL
+  const bootstrapRes = await request(h.app).get('/api/bootstrap');
+  assert.equal(bootstrapRes.status, 200);
+  assert.equal(bootstrapRes.body.loginUrl, 'https://cloud.mso-hef.de/novus/api/tiles/sso/');
+  assert.equal(bootstrapRes.body.ssoParam, 'sso_token');
+
+  // 4. Generate a JWT token like cloud.mso-hef.de produces (with username, display_name, email)
+  const idpToken = await new SignJWT({
+    username: 'max.mustermann',
+    display_name: 'Max Mustermann',
+    email: 'max@mso-hef.de',
+  })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('1h')
+    .sign(new TextEncoder().encode(ssoSecret));
+
+  // 5. Exchange the token via /api/auth/exchange
+  const exchangeRes = await request(h.app)
+    .post('/api/auth/exchange')
+    .set('Authorization', `Bearer ${idpToken}`);
+  assert.equal(exchangeRes.status, 200);
+  assert.equal(exchangeRes.body.user.name, 'Max Mustermann');
+  assert.equal(exchangeRes.body.user.email, 'max@mso-hef.de');
+
+  // Verify cookie set
+  assert.match(exchangeRes.headers['set-cookie'][0], /HttpOnly/);
+
+  // 6. Verify user was created in SQLite database
+  const dbUser = h.db.prepare('SELECT * FROM users WHERE subject=?').get('max.mustermann');
+  assert.ok(dbUser);
+  assert.equal(dbUser.name, 'Max Mustermann');
+  assert.equal(dbUser.role, 'user');
+});

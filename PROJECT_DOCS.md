@@ -38,8 +38,10 @@ Wissensraum ist eine selbst gehostete Wissens- und Chat-Anwendung mit Retrieval-
 ## 3. Datenfluss & Arbeitsweise
 
 ### A. Anmeldung & Sitzungen
-1. Der Benutzer übergibt ein signiertes JWT (im Anmeldeformular oder via Fragment `#access_token=...`).
-2. `POST /api/auth/exchange` validiert das Token gegen Aussteller (`JWT_ISSUER`), Empfänger (`JWT_AUDIENCE`), Gültigkeitsdauer (`exp`) und Signatur.
+1. Der Benutzer meldet sich per Single Sign-On (z. B. via **cloud.mso-hef.de** über den Button *„Zum Organisationslogin“* oder per SSO-Redirect mit `?sso_token=...`), per manueller Tokeneingabe oder via Fragment (`#access_token=...`) an.
+2. `POST /api/auth/exchange` validiert das Token:
+   - Zuerst gegen die im **Adminbereich** konfigurierte SSO-Integration (verschlüsselter Shared Secret, flexible Claim-Zuordnung für `username`, `display_name`, `email`).
+   - Alternativ gegen die Server-Konfiguration (`.env`: `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_SECRET` oder JWKS).
 3. Der erste jemals validierte Benutzer wird automatisch und atomar zum **Admin**.
 4. Ein AES-256-GCM verschlüsseltes HttpOnly-Session-Cookie (`__Host-` in Produktion) wird für den Browser gesetzt. Es gibt keine serverseitige Sitzungstabelle.
 
