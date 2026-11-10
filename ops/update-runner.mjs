@@ -233,16 +233,29 @@ export async function runUpdate(
   }
   try {
     await persist('preparing', 'Repository und Voraussetzungen werden geprüft.');
-    if (!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/.test(c.repository))
+    let repoUrl = c.repository;
+    if (!repoUrl) {
+      try {
+        repoUrl = (await git('remote', 'get-url', 'origin')).trim();
+      } catch {
+        repoUrl = 'https://github.com/famnex/wissensbot.git';
+      }
+    }
+    const cleanRepo = repoUrl
+      .replace(/^https:\/\/[^@/]+@github\.com\//i, 'https://github.com/')
+      .replace(/\.git$/i, '');
+    if (!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/i.test(cleanRepo))
       throw new Error(
-        'UPDATE_REPOSITORY muss auf ein öffentliches GitHub-Repository per HTTPS verweisen.',
+        'UPDATE_REPOSITORY muss auf ein gültiges GitHub-Repository per HTTPS verweisen.',
       );
     if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,45}$/.test(c.prefix))
       throw new Error('Ungültige PM2-Prozessnamen.');
     await git('check-ref-format', '--branch', c.branch);
-    const expected = c.repository.replace(/\.git$/, '');
-    const remote = (await git('remote', 'get-url', 'origin')).replace(/\.git$/, '');
-    if (remote !== expected)
+    const rawRemote = (await git('remote', 'get-url', 'origin')).trim();
+    const cleanRemote = rawRemote
+      .replace(/^https:\/\/[^@/]+@github\.com\//i, 'https://github.com/')
+      .replace(/\.git$/i, '');
+    if (cleanRemote.toLowerCase() !== cleanRepo.toLowerCase())
       throw new Error('Git-Remote und UPDATE_REPOSITORY stimmen nicht überein.');
     if ((await git('branch', '--show-current')) !== c.branch)
       throw new Error('Der aktuelle Git-Branch entspricht nicht UPDATE_BRANCH.');
@@ -263,7 +276,15 @@ export async function runUpdate(
     const free = await fs.statfs(c.runDir);
     if (free.bavail * free.bsize < 512 * 1024 * 1024)
       throw new Error('Für das Update-Backup ist nicht genügend freier Speicher vorhanden.');
-    const processes = JSON.parse(await run('pm2', ['jlist'], 30000));
+    const rawPm2 = await run('pm2', ['jlist'], 30000);
+    const startIdx = rawPm2.indexOf('[');
+    const endIdx = rawPm2.lastIndexOf(']');
+    if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
+      throw new Error(
+        `PM2 lieferte keine gültige Prozessliste. Ausgabe: ${rawPm2.slice(0, 200)}`,
+      );
+    }
+    const processes = JSON.parse(rawPm2.slice(startIdx, endIdx + 1));
     for (const name of names) {
       const matching = processes.filter((p) => p.name === name);
       if (matching.length !== 1 || matching[0].pm2_env?.exec_mode !== 'fork_mode')

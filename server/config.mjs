@@ -59,7 +59,7 @@ export function configuration() {
     crawlMaxPages: integer('CRAWL_MAX_PAGES', 40, 1, 100),
     ragMinScore: Number(process.env.RAG_MIN_SCORE || '0.3'),
     allowUpdates: process.env.ALLOW_UPDATES === 'true',
-    updateRepository: process.env.UPDATE_REPOSITORY || '',
+    updateRepository: process.env.UPDATE_REPOSITORY || 'https://github.com/famnex/wissensbot.git',
     updateBranch: process.env.UPDATE_BRANCH || 'main',
     pm2Prefix: process.env.PM2_APP_PREFIX || 'wissensraum',
   };
