@@ -1,5 +1,13 @@
+export function apiEndpoint(path) {
+  const prefix =
+    typeof window !== 'undefined' && window.location.pathname.startsWith('/wissen')
+      ? '/wissen'
+      : '';
+  return `${prefix}${path}`;
+}
+
 export async function api(path, { method = 'GET', body, token, signal } = {}) {
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(apiEndpoint(`/api${path}`), {
     method,
     credentials: 'same-origin',
     signal,
@@ -28,7 +36,7 @@ export async function api(path, { method = 'GET', body, token, signal } = {}) {
   return result;
 }
 export async function streamChat(messages, onEvent, signal) {
-  const response = await fetch('/api/chat', {
+  const response = await fetch(apiEndpoint('/api/chat'), {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', 'X-CSRF-Guard': '1' },
@@ -75,7 +83,7 @@ export async function streamChat(messages, onEvent, signal) {
 export function uploadFile(file, title, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/sources/upload');
+    xhr.open('POST', apiEndpoint('/api/sources/upload'));
     xhr.setRequestHeader('X-CSRF-Guard', '1');
     xhr.timeout = 120000;
     xhr.upload.onprogress = (event) => {
@@ -105,7 +113,7 @@ export function uploadFile(file, title, onProgress) {
 export function uploadImport(file, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/sources/import');
+    xhr.open('POST', apiEndpoint('/api/sources/import'));
     xhr.setRequestHeader('X-CSRF-Guard', '1');
     xhr.timeout = 180000;
     xhr.upload.onprogress = (event) => {
@@ -133,7 +141,7 @@ export function uploadImport(file, onProgress) {
 }
 
 export async function downloadExport(path, defaultFilename = 'wissensraum-export.json') {
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(apiEndpoint(`/api${path}`), {
     method: 'GET',
     credentials: 'same-origin',
     headers: { 'X-CSRF-Guard': '1' },

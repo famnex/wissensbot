@@ -37,6 +37,17 @@ export async function createApp({
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', config.trustProxy);
+  const basePrefix = (config.basePath || '/wissen').replace(/\/+$/, '');
+  if (basePrefix) {
+    app.use((req, _res, next) => {
+      if (req.url.startsWith(`${basePrefix}/`)) {
+        req.url = req.url.slice(basePrefix.length);
+      } else if (req.url === basePrefix) {
+        req.url = '/';
+      }
+      next();
+    });
+  }
   app.use(
     helmet({
       contentSecurityPolicy: {

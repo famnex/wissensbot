@@ -40,6 +40,7 @@ export function configuration() {
     origin: origin.origin,
     host: process.env.HOST || '127.0.0.1',
     port: integer('PORT', 3000, 1, 65535),
+    basePath: process.env.BASE_PATH ? process.env.BASE_PATH.replace(/\/+$/, '') : '/wissen',
     trustProxy: integer('TRUST_PROXY_HOPS', 0, 0, 4),
     encryptionKey: Buffer.from(process.env.APP_ENCRYPTION_KEY, 'hex'),
     auth: {

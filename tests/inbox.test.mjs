@@ -71,6 +71,15 @@ test('Wissens-Inbox REST API and Role Security', async (t) => {
 
   const afterDelete = await adminClient.get('/api/inbox?status=all');
   assert.equal(afterDelete.body.total, 0);
+
+  // 9. Subpath /wissen routing works identically
+  const subpathHealth = await adminClient.get('/wissen/api/health');
+  assert.equal(subpathHealth.status, 200);
+  assert.equal(subpathHealth.body.ok, true);
+
+  const subpathInbox = await adminClient.get('/wissen/api/inbox');
+  assert.equal(subpathInbox.status, 200);
+  assert.equal(subpathInbox.body.total, 0);
 });
 
 test('Chat automatically logs unanswered questions to Inbox', async (t) => {

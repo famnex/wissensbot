@@ -26,7 +26,8 @@ const jwt = await new SignJWT({
   .setExpirationTime(`${config.auth.maxAge}s`)
   .sign(new TextEncoder().encode(config.auth.secret));
 
-const loginUrl = `${config.origin}/#access_token=${jwt}`;
+const subpath = config.basePath ? (config.basePath.startsWith('/') ? config.basePath : '/' + config.basePath) : '';
+const loginUrl = `${config.origin}${subpath}/#access_token=${jwt}`;
 try {
   fs.mkdirSync(config.dataDir, { recursive: true });
   fs.writeFileSync(path.join(config.dataDir, 'login_url.txt'), loginUrl, 'utf8');
