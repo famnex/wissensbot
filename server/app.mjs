@@ -135,6 +135,9 @@ export async function createApp({
         }
       } catch {}
     }
+    if (!loginUrl) {
+      loginUrl = 'https://cloud.mso-hef.de/novus/api/tiles/sso/';
+    }
     res.json({ setup: !getSetting(db, 'first_admin_completed'), loginUrl, ssoParam });
   });
   const loginLimit = rateLimit({

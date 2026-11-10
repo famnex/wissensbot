@@ -128,7 +128,25 @@ Wenn Nutzer im Chat Fragen stellen, zu denen noch kein passendes Wissen in der W
 
 ---
 
-## 6. Lokale Ausführung unter Windows
+## 7. Updates & Wartungsdienst (PM2 Update-Runner)
+
+- **Update-Workflow:**
+  - Der PM2-Dienst `wissensraum-updater` überwacht `var/updates/request.json`.
+  - Bei Anforderung über den Adminbereich führt er atomare Backups (Git SHA, Datenbank, Node Modules, Dist) durch, zieht den Ziel-Branch per `git fetch`/`git checkout`, migriert die Datenbank, baut das Frontend und startet die PM2-Dienste neu.
+  - Im Fehlerfall erfolgt ein automatisches Rollback auf den vorherigen Stand.
+- **Fehlerbehandlung & Reset:**
+  - `DELETE /api/admin/updates` setzt blockierte oder fehlgeschlagene Update-Zustände (`status.json`, `request.json`, `command.lock`) sauber auf `idle` zurück.
+  - Im Adminbereich steht bei Fehlern die Schaltfläche *„Meldung zurücksetzen“* bereit.
+- **SSO Identity Provider Integration (Novus / Nextcloud):**
+  - Vollständige SSO-Unterstützung für z. B. `cloud.mso-hef.de` (JWT Redirect).
+  - Ziel-URL in der IdP-Kachel: `https://<domain>/wissen/`
+  - URL Query Parameter: `sso_token` (Standard)
+  - Claims: `username`, `display_name`, `email`
+  - Geteilter Signierschlüssel (Secret) wird im Adminbereich unter *Einstellungen -> SSO Identity Provider* hinterlegt.
+
+---
+
+## 8. Lokale Ausführung unter Windows
 
 ### Start per `start.bat`
 - Ein Doppelklick auf `start.bat` erledigt die komplette Initialisierung:

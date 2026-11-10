@@ -6,6 +6,9 @@ export function Login({ bootstrap, onLogin }) {
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [showManualToken, setShowManualToken] = useState(false);
+  const loginUrl = bootstrap?.loginUrl || 'https://cloud.mso-hef.de/novus/api/tiles/sso/';
+
   async function submit(event) {
     event.preventDefault();
     setBusy(true);
@@ -55,15 +58,36 @@ export function Login({ bootstrap, onLogin }) {
               Der erste erfolgreich angemeldete Benutzer erhält dauerhaft die Administratorrolle.
             </Notice>
           )}
-          {bootstrap?.loginUrl ? (
-            <div className="login-actions">
-              <a className="button primary full" href={bootstrap.loginUrl}>
-                Zum Organisationslogin <ArrowRight size={18} />
-              </a>
-              <Notice>{error}</Notice>
-            </div>
-          ) : (
-            <form onSubmit={submit}>
+
+          <div className="login-actions">
+            <a className="button primary full" href={loginUrl}>
+              Zum Organisationslogin <ArrowRight size={18} />
+            </a>
+            <Notice>{error}</Notice>
+          </div>
+
+          <div style={{ marginTop: '20px', textAlign: 'center' }}>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => setShowManualToken(!showManualToken)}
+              style={{
+                fontSize: '0.78rem',
+                color: '#64748b',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                textDecoration: 'underline',
+              }}
+            >
+              {showManualToken
+                ? 'Manuelle Eingabe verbergen'
+                : 'Zugangs-Token manuell eingeben (Fallback)'}
+            </button>
+          </div>
+
+          {showManualToken && (
+            <form onSubmit={submit} style={{ marginTop: '16px' }}>
               <label htmlFor="jwt">Zugangs-Token (JWT)</label>
               <input
                 id="jwt"
@@ -77,16 +101,19 @@ export function Login({ bootstrap, onLogin }) {
                 maxLength={16000}
               />
               <p className="field-help">
-                Der Token wird von deinem externen Identitätsanbieter ausgestellt. Einen Token vom
-                Organisationsportal kannst du hier direkt verwenden.
+                Der Token wird von deinem externen Identitätsanbieter ausgestellt.
               </p>
-              <Notice>{error}</Notice>
-              <button className="button primary full" disabled={busy || !token.trim()}>
+              <button
+                className="button secondary full"
+                disabled={busy || !token.trim()}
+                style={{ marginTop: '8px' }}
+              >
                 {busy ? <Spinner /> : <ArrowRight size={18} />}{' '}
-                {busy ? 'Anmeldung prüfen …' : 'Sicher anmelden'}
+                {busy ? 'Anmeldung prüfen …' : 'Mit Token anmelden'}
               </button>
             </form>
           )}
+
           <p className="login-foot">
             <ShieldCheck size={16} /> Chats werden nicht auf dem Server gespeichert.
           </p>

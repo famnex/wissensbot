@@ -232,18 +232,86 @@ export function adminRoutes(db, config, gemini) {
         'Der PM2-Update-Prozess läuft nicht. Bitte auf dem Server starten.',
       );
     const request = { id: randomUUID(), actor: req.user.id, createdAt: Date.now() };
+    const requestPath = path.join(config.updateDir, 'request.json');
+    const statusPath = path.join(config.updateDir, 'status.json');
+
     try {
-      await fs.writeFile(path.join(config.updateDir, 'request.json'), JSON.stringify(request), {
-        flag: 'wx',
+      // Check if existing request is stale (> 30s) or terminal, allow overwriting
+      let existing = null;
+      try {
+        existing = JSON.parse(await fs.readFile(requestPath, 'utf8'));
+      } catch {}
+
+      if (existing) {
+        let status = null;
+        try {
+          status = JSON.parse(await fs.readFile(statusPath, 'utf8'));
+        } catch {}
+        const isTerminal =
+          !status ||
+          [
+            'succeeded',
+            'failed',
+            'rolled_back',
+            'rollback_failed',
+            'no_change',
+            'idle',
+          ].includes(status.state);
+        const isStale = Date.now() - (existing.createdAt || 0) > 30000;
+        if (isTerminal || isStale) {
+          await fs.rm(requestPath, { force: true });
+        } else {
+          throw new AppError(409, 'UPDATE_RUNNING', 'Ein Update ist bereits in Bearbeitung.');
+        }
+      }
+
+      await fs.writeFile(requestPath, JSON.stringify(request), {
+        flag: 'w',
         mode: 0o600,
       });
+
+      // Reset status immediately to preparing so old failed banners disappear right away
+      await fs.writeFile(
+        statusPath,
+        JSON.stringify(
+          {
+            id: request.id,
+            state: 'preparing',
+            message: 'Update wird vorbereitet …',
+            startedAt: request.createdAt,
+            updatedAt: request.createdAt,
+          },
+          null,
+          2,
+        ),
+      );
     } catch (error) {
-      if (error.code === 'EEXIST')
-        throw new AppError(409, 'UPDATE_RUNNING', 'Ein Update ist bereits in Bearbeitung.');
+      if (error instanceof AppError) throw error;
       throw error;
     }
     audit(db, req.user.id, 'update_requested', request.id);
     res.status(202).json(request);
+  });
+  router.delete('/updates', async (req, res) => {
+    const requestPath = path.join(config.updateDir, 'request.json');
+    const lockPath = path.join(config.updateDir, 'command.lock');
+    const statusPath = path.join(config.updateDir, 'status.json');
+    await fs.rm(requestPath, { force: true });
+    await fs.rm(lockPath, { force: true });
+    await fs.writeFile(
+      statusPath,
+      JSON.stringify(
+        {
+          state: 'idle',
+          message: 'Kein Update aktiv.',
+          updatedAt: Date.now(),
+        },
+        null,
+        2,
+      ),
+    );
+    audit(db, req.user.id, 'update_status_reset');
+    res.json({ ok: true, state: 'idle', message: 'Kein Update aktiv.' });
   });
   return router;
 }

@@ -694,6 +694,15 @@ function Updates({ settings, overview }) {
       setStarting(false);
     }
   }
+  async function resetStatus() {
+    setError('');
+    try {
+      await api('/admin/updates', { method: 'DELETE' });
+      await reload();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
   const steps = ['Prüfung', 'Backup', 'Installation', 'Migration', 'Neustart'];
   const stage =
     {
@@ -789,6 +798,18 @@ function Updates({ settings, overview }) {
             >
               {status.message}
             </Notice>
+            {['failed', 'rollback_failed', 'succeeded', 'no_change'].includes(status.state) && (
+              <div style={{ marginTop: '10px' }}>
+                <button
+                  type="button"
+                  className="button secondary"
+                  style={{ fontSize: '0.82rem', padding: '6px 12px' }}
+                  onClick={resetStatus}
+                >
+                  Meldung zurücksetzen
+                </button>
+              </div>
+            )}
             {status.updatedAt && <small>Letzte Änderung: {date(status.updatedAt)}</small>}
           </div>
         )}
